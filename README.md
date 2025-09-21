@@ -25,7 +25,9 @@ git checkout your_branch_name
 ~~~
 
 To see the all the branches--> git branch -a
+
 The branch that you currently in will show with this *
+
 press q to exit from this window
 
 ## 4 Add the remote (only once)
