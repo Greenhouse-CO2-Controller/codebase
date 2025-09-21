@@ -16,7 +16,7 @@ git fetch origin
 ## 3. Switch to your branch
 
 ~~~
-git checkout -b your_branch_name
+git checkout your_branch_name
 ~~~
 
 To see the all the branches--> git branch -a
