@@ -13,7 +13,7 @@ cd codebase
 git fetch origin
 ~~~
 
-## 3. Switch to their branch
+## 3. Switch to your branch
 
 ~~~
 git checkout -b your_branch_name
@@ -45,9 +45,12 @@ origin  git@github.com:Greenhouse-CO2-Controller/codebase.git (push)
 
 Once you change the code,
 ~~~
-gid add . //(adding all files) or git add file_name1 file_name2
+gid add .
 git commit -m "Commit message"
 ~~~
+
+git add . (adding all files) or git add file_name1 file_name2
+
 ## 6. Push your changes to GitHub
 
 ~~~
