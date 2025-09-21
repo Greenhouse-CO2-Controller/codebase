@@ -16,11 +16,17 @@ git fetch origin
 ## 3. Switch to your branch
 
 ~~~
+git checkout -b your_branch_name
+~~~
+This will create the branch locally (only once). After that you can switch to branches. Run this
+
+~~~
 git checkout your_branch_name
 ~~~
 
 To see the all the branches--> git branch -a
 The branch that you currently in will show with this *
+press q to exit from this window
 
 ## 4 Add the remote (only once)
 
