@@ -1,9 +1,62 @@
-# rp2040-freertos-CPP-template
+# How to work with github organization
 
-This is a template project for developing FreeRTOS based applications on Raspberry Pi RP2040 based boards. 
-This template uses the "official" RP2040 port from the Raspberry Pi Foundation.
-A stripped down version of FreeRTOSKernel V10.6.2 is included in the project. 
-All other ports except RP2040 port have been removed to reduce disk usage.
+## 1. Clone the repo(If you didnt clone)
 
-The drivers included in the project are interrupt driven and require FreeRTOS to work correctly.
+~~~
+git clone git@github.com:Greenhouse-CO2-Controller/codebase.git
+cd codebase
+~~~
+
+## 2. Fetch all branches
+
+~~~
+git fetch origin
+~~~
+
+## 3. Switch to their branch
+
+~~~
+git checkout -b your_branch_name
+~~~
+
+To see the all the branches--> git branch -a
+The branch that you currently in will show with this *
+
+## 4 Add the remote (only once)
+
+~~~
+git remote add origin git@github.com:Greenhouse-CO2-Controller/codebase.git
+~~~
+
+verify connection,
+
+~~~
+git remote -v
+~~~
+
+You will see somthing like this
+
+~~~
+origin  git@github.com:Greenhouse-CO2-Controller/codebase.git (fetch)
+origin  git@github.com:Greenhouse-CO2-Controller/codebase.git (push)
+~~~
+
+## 5. Commit
+
+Once you change the code,
+~~~
+gid add . //(adding all files) or git add file_name1 file_name2
+git commit -m "Commit message"
+~~~
+## 6. Push your changes to GitHub
+
+~~~
+git push origin your_branch_name
+~~~
+
+Note: Always make sure you are pushing to your branch
+
+
+
+
 
