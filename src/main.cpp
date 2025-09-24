@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include "FreeRTOS.h"
@@ -6,9 +7,21 @@
 #include "hardware/gpio.h"
 #include "PicoOsUart.h"
 #include "ssd1306.h"
+#include "timers.h"
 
 
 #include "hardware/timer.h"
+
+#define BUTTON_PIN2 7 //sw_2
+#define BUTTON_PIN1 8 //sw_1
+#define BUTTON_PIN0 9 //sw_0
+#define LED_PIN2 20 //D2
+#define LED_PIN1 21 //D1
+#define LED_PIN0 22 //D0
+#define ROTARY_SW 12
+#define ROTARY_A 10
+#define ROTARY_B 11
+
 extern "C" {
 uint32_t read_runtime_ctr(void) {
     return timer_hw->timerawl;
@@ -18,6 +31,7 @@ uint32_t read_runtime_ctr(void) {
 #include "blinker.h"
 
 SemaphoreHandle_t gpio_sem;
+SemaphoreHandle_t charactor_sem; //lab_2
 
 void gpio_callback(uint gpio, uint32_t events) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -112,37 +126,122 @@ void tls_task(void *param)
     }
 }
 
+void assign_pin(const uint pin) {
+    gpio_init(pin);
+    gpio_set_dir(pin, GPIO_IN);
+    gpio_pull_up(pin);
+}
+
+//lab3 starts
+
+struct Program {
+    PicoOsUart uart;
+    TimerHandle_t inactivityTimer; // timer object
+    TimerHandle_t ledTimer; // timer object
+    std::string inputBuffer;
+    TickType_t lastLedToggleTick;
+
+    Program() : uart(0, 0, 1, 115200), inactivityTimer(nullptr), ledTimer(nullptr), lastLedToggleTick(0) {}
+};
+
+void inactivityCallback(TimerHandle_t xTimer) {
+    auto *ptr = static_cast<Program*>(pvTimerGetTimerID(xTimer));
+    ptr->inputBuffer.clear(); // clear the buffer
+    ptr->uart.send("[Inactive]\r\n");
+}
+
+void ledToggleCallback(TimerHandle_t xTimer) {
+    auto *ptr = static_cast<Program*>(pvTimerGetTimerID(xTimer));
+    static bool ledState = false;
+    ledState = !ledState;
+    gpio_put(LED_PIN1, ledState);
+    ptr->lastLedToggleTick = xTaskGetTickCount();
+}
+
+void processCommand(Program *ptr, const std::string &cmd) {
+    if (cmd == "help") {
+        ptr->uart.send("Commands: help, interval<sec>, time\r\n");
+    }
+    else if (cmd.rfind("interval", 0) == 0) {
+        int val = atoi(cmd.substr(8).c_str());
+        if (val > 0) {
+            xTimerChangePeriod(ptr->ledTimer, pdMS_TO_TICKS(val * 1000), 0);
+            ptr->uart.send("Interval updated\r\n");
+        }
+    }
+    else if (cmd == "time") {
+        TickType_t now = xTaskGetTickCount();
+        //float seconds = (now - ptr->lastLedToggleTick) / (float)configTICK_RATE_HZ;
+        float seconds = (now - ptr->lastLedToggleTick) / 1000.00;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.1f s\r\n", seconds);
+        ptr->uart.send(buf);
+    }
+    else {
+        ptr->uart.send("unknown command\r\n");
+    }
+}
+
+void uartTask(void *param) {
+    auto *ptr = static_cast<Program*>(param);
+    uint8_t c;
+
+    while (true) {
+        if (ptr->uart.read(&c, 1, pdMS_TO_TICKS(100)) > 0) {
+            xTimerReset(ptr->inactivityTimer, 0); // reset the inactive countdown to 0 and starts counting to 30
+
+            if (c == '\r' || c == '\n') {
+                const uint8_t newline[] = {'\r', '\n'};
+                ptr->uart.write(newline, sizeof(newline));
+
+                if (!ptr->inputBuffer.empty()) {
+                    processCommand(ptr, ptr->inputBuffer);
+                    ptr->inputBuffer.clear();
+                }
+            } else {
+                ptr->inputBuffer.push_back((char)c);
+                ptr->uart.write(&c, 1);
+            }
+        }
+    }
+}
+
+//lab3 ends
+
 int main()
 {
-    static led_params lp1 = { .pin = 20, .delay = 300 };
+    //lab_2 starts
     stdio_init_all();
     printf("\nBoot\n");
+    gpio_init(LED_PIN1);
+    gpio_set_dir(LED_PIN1, true);
 
-    gpio_sem = xSemaphoreCreateBinary();
-    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
-    //            tskIDLE_PRIORITY + 1, nullptr);
-#if 0
-    xTaskCreate(modbus_task, "Modbus", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
+    Program ptr;
 
+    ptr.inactivityTimer = xTimerCreate(
+        "Inactivity",
+        pdMS_TO_TICKS(30000), // this is the timeout
+        pdFALSE, // here auto reload false and it will not restart even we call the callback.
+        &ptr,
+        inactivityCallback);
 
-    xTaskCreate(display_task, "SSD1306", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-#if 1
-    xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-#if 0
-    xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
+    ptr.ledTimer = xTimerCreate(
+        "LED",
+        pdMS_TO_TICKS(5000),
+        pdTRUE, // auto reload on. Initially 5 but for every callback it changes based on the input
+        &ptr,
+        ledToggleCallback);
+
+    xTimerStart(ptr.ledTimer, 0);
+    xTimerStart(ptr.inactivityTimer, 0);
+    xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
     vTaskStartScheduler();
 
     while(true){};
+
+    // https://www.freertos.org/Documentation/02-Kernel/04-API-references/11-Software-timers/01-xTimerCreate
 }
+
 
 #include <cstdio>
 #include "ModbusClient.h"
@@ -203,8 +302,6 @@ void modbus_task(void *param) {
         vTaskDelay(3000);
 #endif
     }
-
-
 }
 
 #include "ssd1306os.h"
@@ -218,7 +315,6 @@ void display_task(void *param)
     while(true) {
         vTaskDelay(100);
     }
-
 }
 
 void i2c_task(void *param) {
@@ -249,10 +345,12 @@ void i2c_task(void *param) {
     printf("\n");
 
     while(true) {
+
         gpio_put(led_pin, 1);
         vTaskDelay(delay);
         gpio_put(led_pin, 0);
         vTaskDelay(delay);
+
     }
 
 
