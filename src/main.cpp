@@ -167,7 +167,6 @@ void uartTask(void *param) {
     }
 }
 
-
 int main()
 {
     static led_params lp1 = { .pin = 20, .delay = 300 };
@@ -193,7 +192,7 @@ int main()
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
 
-#if 0 // enable to enter commands
+#if 0 // enable this to enter commands. But we have to set this in UI and cloud
     xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
 #endif
 
@@ -255,20 +254,21 @@ void modbus_task(void *param) {
     vTaskDelay(pdMS_TO_TICKS(100));
     produal.write(0); // need to set this based on the C02 level
     vTaskDelay((100));
-    produal.write(0);
+    produal.write(0); // 100 means 10%
 #endif
 
     while (true) {
 #ifdef USE_MODBUS
 
         gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
+        // these need to be output to oled.(and cloud if needed)
         printf("RH=%5.1f%%\n", rh.read() / 10.0);
         vTaskDelay(5);
         printf("T =%5.1f%%\n", t.read() / 10.0);
         vTaskDelay(5);
-        printf("fan =%5.1f%%\n", produal.read()/1.0);
+        printf("fan =%5.1f%%\n", produal.read()/10.0);
         vTaskDelay(5);
-        printf("co2 =%5.1f%%\n", c02.read() /10.0);
+        printf("co2 =%5.1f\n", c02.read() /10.0);
         vTaskDelay(3000);
 
 
