@@ -9,7 +9,7 @@
 #include <cstring>
 #include "hardware/i2c.h"
 
-#define EEPROM_ADDRESS 0x50
+#define EEPROM_ADDRESS 0x50 // check the address
 #define I2C i2c0
 #define ADDRESS_SIZE 2
 

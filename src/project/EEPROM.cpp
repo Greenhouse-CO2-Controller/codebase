@@ -3,6 +3,8 @@
 //
 
 #include "EEPROM.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 EEPROM::EEPROM(uint16_t address, const void *data, size_t length)
     : state_address(address), data(data), length(length), i2c(I2C), eeprom_address(EEPROM_ADDRESS), address_size(ADDRESS_SIZE) {}
@@ -13,7 +15,8 @@ void EEPROM::eeprom_write_state(void *write_data) {
     buffer[1] = state_address & 0xFF;
     memcpy(&buffer[2], write_data, length);
     i2c_write_blocking(i2c, eeprom_address, buffer, sizeof(buffer), false);
-    sleep_ms(50);
+    //sleep_ms(50); // we have to use freertos delay
+    vTaskDelay(50);
 }
 
 void EEPROM::eeprom_read_state() {

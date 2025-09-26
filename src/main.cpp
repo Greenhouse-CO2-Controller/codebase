@@ -9,6 +9,9 @@
 #include "timers.h"
 
 #include "hardware/timer.h"
+//my includes starts
+#include "project/EEPROM.h"
+
 extern "C" {
 uint32_t read_runtime_ctr(void) {
     return timer_hw->timerawl;
@@ -112,6 +115,9 @@ void tls_task(void *param)
     }
 }
 
+// our codes starts here
+void fan_task(void *param); // to control the fan speed
+
 struct Program {
     PicoOsUart uart;
     TimerHandle_t inactivityTimer; // timer object
@@ -122,7 +128,7 @@ struct Program {
     Program() : uart(0, 0, 1, 115200), inactivityTimer(nullptr), ledTimer(nullptr), lastLedToggleTick(0) {}
 };
 
-void processCommand(Program *ptr, const std::string &cmd) {
+void processCommand(Program *ptr, const std::string &cmd) { // this is only for clion serial port purposes
     if (cmd.rfind("ppm", 0) == 0) {
         int val = atoi(cmd.substr(3).c_str());
         if (val > 0 && val <= 1500) { //co2 setpoint should be between 0 to 1500
@@ -134,7 +140,7 @@ void processCommand(Program *ptr, const std::string &cmd) {
     }
     else if (cmd.rfind("dec", 0) == 0) { //aCO2 dissipation--> 2.5 means 2.5 ppm/s
         int val = atoi(cmd.substr(3).c_str());
-        //not completed
+        //not complete
     }
     else if (cmd == "status") { // to view the status
         char buf[64];
@@ -167,6 +173,7 @@ void uartTask(void *param) {
     }
 }
 
+#define TESTING_EEPROM 0x01
 int main()
 {
     static led_params lp1 = { .pin = 20, .delay = 300 };
@@ -174,21 +181,37 @@ int main()
     printf("\nBoot\n");
     Program ptr; // this is for uart function
 
+    //EEPROM testing
+    uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
+    uint8_t testing_write = 0x01;
+    EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
+    testing.eeprom_read_state(); // this will store the data in eeprom_testing
+    testing.eeprom_write_state(&testing_write); // write data to eerpom
+    testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
+    // EEPROM testing ends
+
     gpio_sem = xSemaphoreCreateBinary();
     //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
     //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
     //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
     //            tskIDLE_PRIORITY + 1, nullptr);
-#if 1
+
+
+    // ALL tasks from here
+
+#if 1 // modbus task--> control fan and reding sensors
     xTaskCreate(modbus_task, "Modbus", 512, (void *) nullptr,
                 tskIDLE_PRIORITY + 2, nullptr);
 
-
-    //xTaskCreate(display_task, "SSD1306", 512, (void *) nullptr,
-                        //tskIDLE_PRIORITY + 1, nullptr);
 #endif
-#if 1
+
+#if 1 // not using now.
     xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+#if 0 //UI task
+    xTaskCreate(display_task, "SSD1306", 512, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
 
@@ -196,10 +219,15 @@ int main()
     xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
 #endif
 
-#if 0
+#if 0 // not using now.
     xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
+
+    // network task
+    // EEPROM task
+    // Thinkspeak task
+
     vTaskStartScheduler();
 
     while(true){};
