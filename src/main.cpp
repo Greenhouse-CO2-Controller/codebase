@@ -7,10 +7,12 @@
 #include "PicoOsUart.h"
 #include "ssd1306.h"
 #include "timers.h"
-
+#include "project/tasks/tasks_data.h"
+#include "project/tasks/tasks.h"
 #include "hardware/timer.h"
 //my includes starts
-#include "project/EEPROM.h"
+#include "project/eeprom/EEPROM.h"
+#include "project/eeprom/EEPROM_data.h"
 
 extern "C" {
 uint32_t read_runtime_ctr(void) {
@@ -20,6 +22,99 @@ uint32_t read_runtime_ctr(void) {
 
 #include "blinker.h"
 
+#define TESTING_EEPROM 0x01
+int main()
+{
+    static led_params lp1 = { .pin = 20, .delay = 300 };
+    stdio_init_all();
+    printf("\nBoot\n");
+    Program ptr; // this is for uart function
+    tasks_return t_ptr;
+
+    //EEPROM testing
+    /*
+    uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
+    uint8_t testing_write = 0x01;
+    EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
+    testing.eeprom_read_state(); // this will store the data in eeprom_testing
+    testing.eeprom_write_state(&testing_write); // write data to eerpom
+    testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
+    */
+    // EEPROM testing ends
+
+    gpio_sem = xSemaphoreCreateBinary();
+    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
+    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
+    //            tskIDLE_PRIORITY + 1, nullptr);
+
+
+    // ALL tasks from here
+
+#if 1 // modbus task--> control fan and reding sensors
+    xTaskCreate(modbus_task, "Modbus", 512, &t_ptr,
+                tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
+
+#endif
+
+#if 1 // not using now.
+    xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+#if 0 //UI task
+    xTaskCreate(display_task, "SSD1306", 512, &t_ptr,
+                tskIDLE_PRIORITY + 1, nullptr); // changed (void *) nullptr --> &t_ptr
+#endif
+
+#if 1 // enable this to enter commands. But we have to set this in UI and cloud
+    xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
+#endif
+
+#if 0 // not using now.
+    xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+    // network task
+    // EEPROM task
+    // Thinkspeak task
+
+    vTaskStartScheduler();
+
+    while(true){};
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+/*
 SemaphoreHandle_t gpio_sem;
 
 void gpio_callback(uint gpio, uint32_t events) {
@@ -101,9 +196,7 @@ void serial_task(void *param)
     }
 }
 
-void modbus_task(void *param);
-void display_task(void *param);
-void i2c_task(void *param);
+
 extern "C" {
     void tls_test(void);
 }
@@ -117,6 +210,7 @@ void tls_task(void *param)
 
 // our codes starts here
 void fan_task(void *param); // to control the fan speed
+
 
 struct Program {
     PicoOsUart uart;
@@ -173,65 +267,6 @@ void uartTask(void *param) {
     }
 }
 
-#define TESTING_EEPROM 0x01
-int main()
-{
-    static led_params lp1 = { .pin = 20, .delay = 300 };
-    stdio_init_all();
-    printf("\nBoot\n");
-    Program ptr; // this is for uart function
-
-    //EEPROM testing
-    uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
-    uint8_t testing_write = 0x01;
-    EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
-    testing.eeprom_read_state(); // this will store the data in eeprom_testing
-    testing.eeprom_write_state(&testing_write); // write data to eerpom
-    testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
-    // EEPROM testing ends
-
-    gpio_sem = xSemaphoreCreateBinary();
-    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
-    //            tskIDLE_PRIORITY + 1, nullptr);
-
-
-    // ALL tasks from here
-
-#if 1 // modbus task--> control fan and reding sensors
-    xTaskCreate(modbus_task, "Modbus", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 2, nullptr);
-
-#endif
-
-#if 1 // not using now.
-    xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-
-#if 0 //UI task
-    xTaskCreate(display_task, "SSD1306", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-
-#if 0 // enable this to enter commands. But we have to set this in UI and cloud
-    xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
-#endif
-
-#if 0 // not using now.
-    xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-
-    // network task
-    // EEPROM task
-    // Thinkspeak task
-
-    vTaskStartScheduler();
-
-    while(true){};
-}
 
 #include <cstdio>
 #include "ModbusClient.h"
@@ -256,6 +291,7 @@ int main()
 
 void modbus_task(void *param) {
 
+    auto *ptr = static_cast<tasks_return*>(param);
     const uint led_pin = 22;
     const uint button = 9;
 
@@ -266,11 +302,6 @@ void modbus_task(void *param) {
     gpio_init(button);
     gpio_set_dir(button, GPIO_IN);
     gpio_pull_up(button);
-
-    // Initialize chosen serial port
-    //stdio_init_all();
-
-    //printf("\nBoot\n");
 
 #ifdef USE_MODBUS
     auto uart{std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS)};
@@ -290,13 +321,17 @@ void modbus_task(void *param) {
 
         gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
         // these need to be output to oled.(and cloud if needed)
-        printf("RH=%5.1f%%\n", rh.read() / 10.0);
+        float val = rh.read();
+        printf("RH=%5.1f%%\n", val / 10.0);
         vTaskDelay(5);
-        printf("T =%5.1f%%\n", t.read() / 10.0);
+        ptr->t_return = t.read();
+        printf("T =%5.1f%%\n", ptr->t_return / 10.0);
         vTaskDelay(5);
-        printf("fan =%5.1f%%\n", produal.read()/10.0);
+        ptr->produal_return = produal.read();
+        printf("fan =%5.1f%%\n", ptr->produal_return/10.0);
         vTaskDelay(5);
-        printf("co2 =%5.1f\n", c02.read() /10.0);
+        ptr->co2_return = c02.read();
+        printf("co2 =%5.1f\n", ptr->co2_return  /10.0);
         vTaskDelay(3000);
 
 
@@ -308,12 +343,20 @@ void modbus_task(void *param) {
 #include "ssd1306os.h"
 void display_task(void *param) // for led display(UI)
 {
+    auto *ptr = static_cast<tasks_return*>(param);
     auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
     ssd1306os display(i2cbus);
     display.fill(0);
-    display.text("Display is ok", 0, 0);
+
+    //display.text("Display is ok", 0, 0);
+    // display ptr->rh.read()
     display.show();
     while(true) {
+        display.fill(0);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "RH=%5.1f%%", ptr->rt_return / 10.0);
+        display.text(buf, 0, 0);
+        display.show();
         vTaskDelay(100);
     }
 
@@ -355,3 +398,4 @@ void i2c_task(void *param) {
 
 
 }
+*/
