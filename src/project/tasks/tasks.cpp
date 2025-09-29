@@ -106,40 +106,31 @@ void display_task(void *param) // for led display(UI)
 }
 
 void i2c_task(void *param) {
-    auto i2cbus{std::make_shared<PicoI2C>(0, 100000)};
-
+    auto i2cbus{std::make_shared<PicoI2C>(1, 100000)};
+    auto *ptr = static_cast<tasks_return*>(param);
     const uint led_pin = 21;
     const uint delay = pdMS_TO_TICKS(250);
     gpio_init(led_pin);
     gpio_set_dir(led_pin, GPIO_OUT);
 
-    uint8_t buffer[64] = {0};
-    i2cbus->write(0x50, buffer, 2);
+    uint8_t cmd[2] = {0x36, 0x08};
 
-    auto rv = i2cbus->read(0x50, buffer, 64);
-    printf("rv=%u\n", rv);
-    for(int i = 0; i < 64; ++i) {
-        printf("%c", isprint(buffer[i]) ? buffer[i] : '_');
-    }
-    printf("\n");
-
-    buffer[0]=0;
-    buffer[1]=64;
-    rv = i2cbus->transaction(0x50, buffer, 2, buffer, 64);
-    printf("rv=%u\n", rv);
-    for(int i = 0; i < 64; ++i) {
-        printf("%c", isprint(buffer[i]) ? buffer[i] : '_');
-    }
-    printf("\n");
+    uint8_t buffer[2] = {0};
 
     while(true) {
-        gpio_put(led_pin, 1);
-        vTaskDelay(delay);
-        gpio_put(led_pin, 0);
-        vTaskDelay(delay);
+        i2cbus->write(0x40, cmd, 2);
+        vTaskDelay(pdMS_TO_TICKS(5));
+        int p = i2cbus->read(0x40, buffer, 2);;
+        if(p != 2) {
+            printf("I2C read failed, pressure=%d\n", p);
+        } else {
+            int16_t raw = (buffer[0] << 8) | buffer[1];
+            float pressure = raw / 240.0f;
+            ptr->pressure_return = pressure;
+            printf("Pressure=%.2f Pa\n", pressure);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2995));
     }
-
-
 }
 
 void processCommand(Program *ptr, const std::string &cmd) { // this is only for clion serial port purposes
@@ -187,7 +178,7 @@ void uartTask(void *param) {
     }
 }
 
-void fan_task(void *param) {
+void controller_task(void *param) {
     // still empty
 }
 

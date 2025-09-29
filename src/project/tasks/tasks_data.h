@@ -23,6 +23,7 @@ struct tasks_return {
     float rt_return;
     float t_return;
     float co2_return;
+    float pressure_return;
 };
 
 struct Program {

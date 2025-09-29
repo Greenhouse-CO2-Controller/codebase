@@ -15,7 +15,7 @@
 void modbus_task(void *pvParameters);
 void display_task(void *pvParameters);
 void i2c_task(void *param);
-void fan_task(void *param);
+void controller_task(void *param);
 void uartTask(void *param);
 void processCommand(Program *ptr, const std::string &cmd);
 void blink_task(void *param);
