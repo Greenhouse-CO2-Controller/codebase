@@ -11,7 +11,10 @@
 #include "timers.h"
 #include "PicoOsUart.h"
 #include <string>
+#include "queue.h"
+
 extern SemaphoreHandle_t gpio_sem;
+extern QueueHandle_t co2Queue;
 
 struct led_params{
     uint pin;
@@ -20,10 +23,11 @@ struct led_params{
 
 struct tasks_return {
     float produal_return;
-    float rt_return;
+    float rh_return;
     float t_return;
     float co2_return;
     float pressure_return;
+    uint pulse_count;
 };
 
 struct Program {

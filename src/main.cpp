@@ -28,6 +28,7 @@ int main()
     static led_params lp1 = { .pin = 20, .delay = 300 };
     stdio_init_all();
     printf("\nBoot\n");
+    co2Queue = xQueueCreate(1, sizeof(float));
     Program ptr; // this is for uart function
     tasks_return t_ptr;
 
@@ -50,11 +51,13 @@ int main()
 
 
     // ALL tasks from here
-
+    xTaskCreate(controller_task,"controller_task",512,NULL,tskIDLE_PRIORITY+3,NULL);
 #if 1 // modbus task--> control fan and reding sensors
     xTaskCreate(modbus_task, "Modbus", 512, &t_ptr,
                 tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
 
+    //xTaskCreate(AI1_counter_task, "AI1_counter", 512, nullptr,
+                //tskIDLE_PRIORITY+1,nullptr);
 #endif
 
 #if 1 // not using now.

@@ -13,6 +13,7 @@
 
 
 void modbus_task(void *pvParameters);
+void AI1_counter_task(void *pvParameters);
 void display_task(void *pvParameters);
 void i2c_task(void *param);
 void controller_task(void *param);

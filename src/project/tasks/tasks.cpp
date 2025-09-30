@@ -14,6 +14,7 @@
 #include "ssd1306os.h"
 
 SemaphoreHandle_t gpio_sem = nullptr;
+QueueHandle_t co2Queue = nullptr;
 
 // We are using pins 0 and 1, but see the GPIO function select table in the
 // datasheet for information on which other pins can be used.
@@ -53,36 +54,84 @@ void modbus_task(void *param) {
     ModbusRegister t(rtu_client, 241, 257); // temperature
     ModbusRegister c02(rtu_client, 240, 5); // C02 level
     ModbusRegister produal(rtu_client, 1, 0); // to control the fan
+    ModbusRegister fan_counter(rtu_client, 1, 30005); // AI1 counter
     vTaskDelay(pdMS_TO_TICKS(100));
-    produal.write(0); // need to set this based on the C02 level
+    produal.write(0); // move this to controller task and  set the speed based on the C02 level
     vTaskDelay((100));
     produal.write(0); // 100 means 10%
-#endif
 
+#endif
+    uint32_t last_display_time =0;
     while (true) {
 #ifdef USE_MODBUS
 
-        gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
+        //gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
         // these need to be output to oled.(and cloud if needed)
-        float val = rh.read();
-        printf("RH=%5.1f%%\n", val / 10.0);
-        vTaskDelay(5);
-        ptr->t_return = t.read();
-        printf("T =%5.1f%%\n", ptr->t_return / 10.0);
-        vTaskDelay(5);
-        ptr->produal_return = produal.read();
-        printf("fan =%5.1f%%\n", ptr->produal_return/10.0);
-        vTaskDelay(5);
-        ptr->co2_return = c02.read();
-        printf("co2 =%5.1f\n", ptr->co2_return  /10.0);
-        vTaskDelay(3000);
+        uint16_t pulses = fan_counter.read();
+        ptr->pulse_count = pulses;
 
+        // Read other sensors less frequently (every 3s)
+        uint32_t now = xTaskGetTickCount();
+        if(now - last_display_time > pdMS_TO_TICKS(1495)) {
+            ptr->rh_return = rh.read();
+            ptr->t_return  = t.read();
+            ptr->co2_return = c02.read();
+            xQueueOverwrite(co2Queue, &ptr->co2_return);
+            ptr->produal_return = produal.read();
+
+            printf("RH=%5.1f%%, T=%5.1fC, CO2=%5.1f ppm, Fan AO1=%5.1f%%, Pulses=%u\n",
+                   ptr->rh_return/10.0, ptr->t_return/10.0, ptr->co2_return/10.0,
+                   ptr->produal_return/10.0, pulses);
+            if (pulses>0) {
+                printf("Fan is malfunctioning"); // display this in UI
+            }
+            gpio_put(led_pin, !gpio_get(led_pin));
+            last_display_time = now;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5));
 
 #endif
+    }
+}
+
+void controller_task(void *param) {
+    // still empty
+    float co2level;
+    float fanlevel;
+    //ModbusRegister produal(rtu_client, 1, 0);
+
+    while (true) {
+        if (xQueueReceive(co2Queue, &co2level, portMAX_DELAY)) {
+
+            if (co2level>2000.0f) {
+                fanlevel = 10000;
+                printf("high co2 level\n");
+            }else if (co2level<1500.0f && co2level>200.0f) {
+                // adjust the fan
+            }else if (co2level<200.0f) {
+                fanlevel = 0;
+            }
+            //produal.write(fanlevel);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
 }
 
+void AI1_counter_task(void *pvParameters) {
+    /*
+    auto uart{std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS)};
+    auto rtu_client{std::make_shared<ModbusClient>(uart)};
+    ModbusRegister fan_counter(rtu_client, 1, 30005); // AI1 counter
+    while (true) {
+        uint counter = fan_counter.read();
+        printf("Pulse count = %u\n", counter);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    */
+
+}
 
 void display_task(void *param) // for led display(UI)
 {
@@ -97,12 +146,11 @@ void display_task(void *param) // for led display(UI)
     while(true) {
         display.fill(0);
         char buf[32];
-        snprintf(buf, sizeof(buf), "RH=%5.1f%%", ptr->rt_return / 10.0);
+        snprintf(buf, sizeof(buf), "RH=%5.1f%%", ptr->rh_return / 10.0);
         display.text(buf, 0, 0);
         display.show();
         vTaskDelay(100);
     }
-
 }
 
 void i2c_task(void *param) {
@@ -129,7 +177,7 @@ void i2c_task(void *param) {
             ptr->pressure_return = pressure;
             printf("Pressure=%.2f Pa\n", pressure);
         }
-        vTaskDelay(pdMS_TO_TICKS(2995));
+        vTaskDelay(pdMS_TO_TICKS(1495));
     }
 }
 
@@ -178,9 +226,7 @@ void uartTask(void *param) {
     }
 }
 
-void controller_task(void *param) {
-    // still empty
-}
+
 
 void blink_task(void *param)
 {
