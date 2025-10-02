@@ -29,19 +29,9 @@ int main()
     stdio_init_all();
     printf("\nBoot\n");
     co2Queue = xQueueCreate(1, sizeof(float));
-    Program ptr; // this is for uart function
-    tasks_return t_ptr;
-
-    //EEPROM testing
-    /*
-    uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
-    uint8_t testing_write = 0x01;
-    EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
-    testing.eeprom_read_state(); // this will store the data in eeprom_testing
-    testing.eeprom_write_state(&testing_write); // write data to eerpom
-    testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
-    */
-    // EEPROM testing ends
+    Uart_s ptr; // this is for uart function
+    Data sensor_ptr;
+    static SystemObjects sys;
 
     gpio_sem = xSemaphoreCreateBinary();
     //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
@@ -49,18 +39,25 @@ int main()
     //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
     //            tskIDLE_PRIORITY + 1, nullptr);
 
-
     // ALL tasks from here
-    xTaskCreate(controller_task,"controller_task",512,NULL,tskIDLE_PRIORITY+3,NULL);
+
+#if 1 //controller task
+    xTaskCreate(controller_task,"controller_task",512,&sys,tskIDLE_PRIORITY+3,NULL);
+
+#endif
 #if 1 // modbus task--> control fan and reding sensors
-    xTaskCreate(modbus_task, "Modbus", 512, &t_ptr,
+    xTaskCreate(modbus_task, "Modbus", 512, &sys,
                 tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
 
     //xTaskCreate(AI1_counter_task, "AI1_counter", 512, nullptr,
                 //tskIDLE_PRIORITY+1,nullptr);
 #endif
 
-#if 1 // not using now.
+#if 0 // co2 injecting
+    xTaskCreate(co2_injecting_task, "CO2_Inject", 512, &sys, tskIDLE_PRIORITY + 2, nullptr);
+
+#endif
+#if 0 // not using now.
     xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
@@ -70,7 +67,7 @@ int main()
                 tskIDLE_PRIORITY + 1, nullptr); // changed (void *) nullptr --> &t_ptr
 #endif
 
-#if 1 // enable this to enter commands. But we have to set this in UI and cloud
+#if 0 // enable this to enter commands. But we have to set this in UI and cloud
     xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
 #endif
 
@@ -78,6 +75,7 @@ int main()
     xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
+
 
     // network task
     // EEPROM task
@@ -101,7 +99,16 @@ int main()
 
 
 
-
+//EEPROM testing
+/*
+uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
+uint8_t testing_write = 0x01;
+EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
+testing.eeprom_read_state(); // this will store the data in eeprom_testing
+testing.eeprom_write_state(&testing_write); // write data to eerpom
+testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
+*/
+// EEPROM testing ends
 
 
 
