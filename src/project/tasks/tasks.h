@@ -24,6 +24,9 @@ void gpio_task(void *param);
 void gpio_callback(uint gpio, uint32_t events);
 void relay_task(void *param);
 void co2_injecting_task(void *param);
+
+//Display
+void ui_task(void *param);
 //void watchdog_task(void *pvParameters);
 
 #endif //RP2040_FREERTOS_IRQ_ALL_TASKS_H

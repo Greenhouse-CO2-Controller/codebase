@@ -40,7 +40,30 @@ struct Data {
     float co2_setpoint;
 };
 
+typedef enum {
+    rot_rotate_clockwise,
+    rot_rotate_counterclockwise
+}rotation_event_t;
 
+typedef enum {
+    event_button,
+    event_encoder
+}event_type_t;
+
+typedef struct {
+    rotation_event_t direction;
+    event_type_t type;
+    uint32_t timestamp;
+}gpio_event_s;
+
+typedef struct {
+    bool led_state;
+    int led_frequency;
+    uint32_t last_button_time;
+    TaskHandle_t blink_task_handle;
+    QueueHandle_t queue;
+    QueueHandle_t gpio_semaphore;
+} led_data_s;
 
 struct SystemObjects {
     std::shared_ptr<PicoOsUart> uart;
@@ -55,14 +78,14 @@ struct SystemObjects {
     // Mutex to protect Modbus bus
     SemaphoreHandle_t modbus_mutex;
 
-    float co2_setpoint = 1800.0f; // for testing only
+    float co2_setpoint = 1200.0f; // for testing only
     //float co2_setpoint; // for user input
 
     SystemObjects() {
         uart = std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS);
         rtu_client = std::make_shared<ModbusClient>(uart);
 
-        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 5);
+        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 257);
         fan_control  = std::make_shared<ModbusRegister>(rtu_client, 1, 0);
         fan_counter  = std::make_shared<ModbusRegister>(rtu_client, 1, 30005);
         rh_sensor    = std::make_shared<ModbusRegister>(rtu_client, 241, 256);

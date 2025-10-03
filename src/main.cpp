@@ -21,6 +21,7 @@ uint32_t read_runtime_ctr(void) {
 }
 
 #include "blinker.h"
+static led_data_s *led_data_for_isr = NULL;
 
 #define TESTING_EEPROM 0x01
 int main()
@@ -62,8 +63,8 @@ int main()
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
 
-#if 0 //UI task
-    xTaskCreate(display_task, "SSD1306", 512, &t_ptr,
+#if 1 //UI task
+    xTaskCreate(ui_task, "SSD1306", 512, &sensor_ptr,
                 tskIDLE_PRIORITY + 1, nullptr); // changed (void *) nullptr --> &t_ptr
 #endif
 

@@ -33,7 +33,6 @@ QueueHandle_t co2Queue = nullptr;
 
 #define USE_MODBUS
 #define CO2_VALVE_GPIO 27
-
 void modbus_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     uint32_t last_display_time = 0;
@@ -53,9 +52,9 @@ void modbus_task(void *param) {
             t  = s->t_sensor->read()/10.0;
             co2 = s->co2_sensor->read();
             fan = s->fan_control->read()/10.0;
-            float co2_ppm = co2 / 10.0f;
+            float co2_ppm = co2*10;
             xSemaphoreGive(s->modbus_mutex);
-            xQueueOverwrite(co2Queue, &co2_ppm);
+            xQueueOverwrite(co2Queue, &co2_ppm); // overwrite the old value with latest. so queue doesnt block when its full. for xQueueSend it blocks when its full.
 
             printf("RH=%5.1f%%, T=%5.1fC, CO2=%5.1f ppm, Fan AO1=%5.1f%%, Pulses=%u\n",
                    rh , t , co2_ppm, fan , pulses);
@@ -73,46 +72,78 @@ void controller_task(void *param) {
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);
-    const TickType_t inject_time = pdMS_TO_TICKS(2000);  // 2s injection
+    const TickType_t inject_time = pdMS_TO_TICKS(1500);  // 2s injection
     const TickType_t wait_time = pdMS_TO_TICKS(10000);
     float co2level;
     float setpoint = s->co2_setpoint;
     while (true) {
         if (xQueueReceive(co2Queue, &co2level, portMAX_DELAY)) {
             float fanlevel = 0.0f;
-
+            printf("Co2 level in the controller: %f\n", co2level);
             if (co2level > 2000.0f) {
                 fanlevel = 500.0f;
-                //stop injecting and fan runs until co2 is below 2000
                 gpio_put(CO2_VALVE_GPIO, 0);
                 printf("ALARM!!! CO2 above 2000 fan is on\n");
             } else if (co2level > setpoint-50) { // 1500 < co2 <= 2000
-                fanlevel = 0.0f;
+                while (true) {
+                    xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500));
+                    if (co2level < setpoint - 50) {
+                        gpio_put(CO2_VALVE_GPIO, 1);
+                        //printf("Injecting co2 (valve ON)\n");
+                        vTaskDelay(inject_time);
+                        gpio_put(CO2_VALVE_GPIO, 0);
+                        //printf("Valve OFF, waiting for stabilization...\n");
+                        vTaskDelay(wait_time);
+                        printf("Waiting done...\n");
+                    } else if (co2level>setpoint + 50) {
+                        //printf("CO2 above max point. Valve OFF\n");
+                        fanlevel = 300.0f;
+
+                        gpio_put(CO2_VALVE_GPIO, 0);
+                    } else if (co2level > setpoint - 50 || co2level < setpoint + 50) {
+                        //printf("CO2 arround set point. Valve OFF\n");
+                        gpio_put(CO2_VALVE_GPIO, 0);
+                        fanlevel = 0.0f;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
+                    s->fan_control->write(fanlevel);
+                    xSemaphoreGive(s->modbus_mutex);
+                }
                 // need to stop injecting and no fan
                 gpio_put(CO2_VALVE_GPIO, 0);
                 printf("CO2 above set point.Stopping injection\n");
             } else if (co2level < setpoint -50) { // co2 <= 1500
-                fanlevel = 0.0f;
-                // inject CO2 and fan off
-
-                printf("lets inject co2\n");
-
                 while (true) {
-                    xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500));
-
+                    xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500)); // here if no reading then it will use last reading
+                    //if (xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500)) == pdTRUE){
+                    //  if(){
+                    //  }else{
+                    //      gpio_put(CO2_VALVE_GPIO, 0); //here it wait for new reading. if not we can notify no rading so we can keep valve close
+                    //  }
+                    //}
                     if (co2level < setpoint - 50) {
                         gpio_put(CO2_VALVE_GPIO, 1);
-                        printf("Injecting co2 (valve ON)\n");
+                        //printf("Injecting co2 (valve ON)\n");
                         vTaskDelay(inject_time);
                         gpio_put(CO2_VALVE_GPIO, 0);
-                        printf("Valve OFF, waiting for stabilization...\n");
+                        //printf("Valve OFF, waiting for stabilization...\n");
                         vTaskDelay(wait_time);
-                    } else {
-                        printf("CO2 above set point. Valve OFF\n");
-                        gpio_put(CO2_VALVE_GPIO, 0);
-                    }
+                        printf("Waiting done...\n");
+                    } else if (co2level>setpoint + 50) {
+                        //printf("CO2 above max point. Valve OFF\n");
+                        fanlevel = 300.0f;
 
+                        gpio_put(CO2_VALVE_GPIO, 0);
+                    } else if (co2level > setpoint - 50 || co2level < setpoint + 50) {
+                        //printf("CO2 arround set point. Valve OFF\n");
+                        gpio_put(CO2_VALVE_GPIO, 0);
+                        fanlevel = 0.0f;
+                    }
                     vTaskDelay(pdMS_TO_TICKS(100));
+                    xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
+                    s->fan_control->write(fanlevel);
+                    xSemaphoreGive(s->modbus_mutex);
                 }
 
             }
@@ -126,29 +157,70 @@ void controller_task(void *param) {
 
 void co2_injecting_task(void *param) {
     auto *data = static_cast<Data*>(param);
-
+    auto *s = static_cast<SystemObjects*>(param);
     // Initialize valve GPIO
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);        // valve initially OFF
+    float co2level;
+    float fanlevel;
+    float setpoint = s->co2_setpoint;
+    const TickType_t inject_time = pdMS_TO_TICKS(1500);  // 2s injection
+    const TickType_t wait_time = pdMS_TO_TICKS(30000); // 10s wait period
 
-    const TickType_t inject_time = pdMS_TO_TICKS(2000);  // 2s injection
-    const TickType_t stabilization_time = pdMS_TO_TICKS(10000); // 10s wait period
-    float co2level = 0.0f;
-    data->co2_setpoint = 1800;
+    //data->co2_setpoint = 1800;
     while (true) {
-        // Wait up to 500ms for a new reading, otherwise keep last value
-        xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500));
-
-        if (co2level < data->co2_setpoint - 50) {
-            printf("Injecting CO2... (valve ON)\n");
-            // injection code...
-        } else {
-            printf("CO2 above set point. Valve OFF\n");
+        xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500)); // here if no reading then it will use last reading
+        //if (xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500)) == pdTRUE){
+        //  if(){
+        //  }else{
+        //      gpio_put(CO2_VALVE_GPIO, 0); //here it wait for new reading. if not we can notify no rading so we can keep valve close
+        //  }
+        //}
+        if (co2level < setpoint - 50) {
+            gpio_put(CO2_VALVE_GPIO, 1);
+            //printf("Injecting co2 (valve ON)\n");
+            vTaskDelay(inject_time);
             gpio_put(CO2_VALVE_GPIO, 0);
-        }
+            //printf("Valve OFF, waiting for stabilization...\n");
+            vTaskDelay(wait_time);
+        } else if (co2level>setpoint + 50) {
+            //printf("CO2 above max point. Valve OFF\n");
+            fanlevel = 300.0f;
 
+            gpio_put(CO2_VALVE_GPIO, 0);
+        } else if (co2level > setpoint - 50 || co2level < setpoint + 50) {
+            //printf("CO2 arround set point. Valve OFF\n");
+            gpio_put(CO2_VALVE_GPIO, 0);
+            fanlevel = 0.0f;
+        }
         vTaskDelay(pdMS_TO_TICKS(100));
+        xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
+        s->fan_control->write(fanlevel);
+        xSemaphoreGive(s->modbus_mutex);
+    }
+}
+
+void ui_task(void *param) {
+    auto *s = static_cast<SystemObjects*>(param);
+    auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
+
+    ssd1306os display(i2cbus);
+    display.fill(0);
+    display.text("Group 6", 38,10);
+    display.text("Mark,Visal", 27,30);
+    display.text("Chedel", 42,40);
+    display.show();
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    while (true) {
+        display.fill(0);
+        display.rect(22,39,88,10,1,true); // SET NETWORK
+        //display.rect(22,24,88,10,1,true); // when this is on we need to set color 0
+        display.text("SET C02", 22, 10, 1);
+        display.text("SHOW STATUS", 22, 25,1);
+        display.text("SET NETWORK", 22, 40, 0);
+        display.show();
+        vTaskDelay(100);
     }
 }
 
@@ -165,8 +237,7 @@ void display_task(void *param) // for led display(UI)
     while(true) {
         display.fill(0);
         char buf[32];
-        snprintf(buf, sizeof(buf), "RH=%5.1f%%", ptr->rh_return / 10.0);
-        display.text(buf, 0, 0);
+        display.text("boot", 0, 0);
         display.show();
         vTaskDelay(100);
     }
