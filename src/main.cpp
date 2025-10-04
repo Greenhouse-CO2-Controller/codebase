@@ -24,6 +24,9 @@ uint32_t read_runtime_ctr(void) {
 static led_data_s *led_data_for_isr = NULL;
 
 #define TESTING_EEPROM 0x01
+#define MAX_CO2_SETPOINT 1500
+#define MIN_CO2_SETPOINT 200
+
 int main()
 {
     static led_params lp1 = { .pin = 20, .delay = 300 };
@@ -34,11 +37,18 @@ int main()
     Data sensor_ptr;
     static SystemObjects sys;
 
+
+
+#if 1 //EEPROM
+    uint8_t co2_max_setpoint = 0xFF; // 0xFF just a initialize value.
+    uint16_t co2_setpoint_write = MAX_CO2_SETPOINT;
+    EEPROM co2_setpoint_eeprom(TESTING_EEPROM, &co2_setpoint_eeprom,sizeof(co2_max_setpoint));
+    co2_setpoint_eeprom.eeprom_write_state(&co2_setpoint_write); // this is to write. this only need when the program runs
+    co2_setpoint_eeprom.eeprom_read_state(); // this need when we press reset
+
+#endif
+
     gpio_sem = xSemaphoreCreateBinary();
-    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
-    //            tskIDLE_PRIORITY + 1, nullptr);
 
     // ALL tasks from here
 
@@ -78,7 +88,11 @@ int main()
 #endif
 
 
-    // network task
+    // network task - here we need to write to eeprom and read it back
+    // when we run this for first time all the important data should write to eeprom
+    // Also we need to read it back. so when we press reset after run it reads from the eepro.
+    // then we have data locally
+    // **** eeprom need in--> network task, co2 setpoint
     // EEPROM task
     // Thinkspeak task
 

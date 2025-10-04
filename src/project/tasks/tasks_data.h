@@ -85,7 +85,7 @@ struct SystemObjects {
         uart = std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS);
         rtu_client = std::make_shared<ModbusClient>(uart);
 
-        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 257);
+        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 257); // try with 0
         fan_control  = std::make_shared<ModbusRegister>(rtu_client, 1, 0);
         fan_counter  = std::make_shared<ModbusRegister>(rtu_client, 1, 30005);
         rh_sensor    = std::make_shared<ModbusRegister>(rtu_client, 241, 256);

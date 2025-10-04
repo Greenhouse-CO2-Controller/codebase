@@ -12,6 +12,7 @@ class EEPROM_data {
 public:
     EEPROM_data();
 
+    void eeprom_co2_setpoint();
     uint16_t getCO2() const;
     void setCO2(uint16_t value);
 
@@ -23,6 +24,8 @@ public:
 
 private:
     uint16_t co2;
+    uint16_t max_setpoint;
+    uint16_t min_co2;
     uint16_t co2_setpoint;
     char wifi_ssid[32]{};
     char wifi_pass[32]{};

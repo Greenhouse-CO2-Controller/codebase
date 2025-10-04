@@ -7,10 +7,15 @@
 #include <cstring>
 #include "EEPROM.h"
 
+#define MAX_CO2_SETPOINT 1500
+#define MIN_CO2_SETPOINT 200
+
 EEPROM_data::EEPROM_data():eeprom(0x0000, this, sizeof(EEPROM_data)){
     eeprom.eeprom_read_state();
     if (co2_setpoint == 0xFFFF || co2_setpoint == 0) { // this need when device is boot for the first time
-        co2_setpoint = 800;
+        co2_setpoint = 0;
+        min_co2 = 200;
+        max_setpoint = 1500;
         co2 = 0;
         strcpy(wifi_ssid, "");
         strcpy(wifi_pass, "");

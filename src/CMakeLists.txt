@@ -41,6 +41,10 @@ add_executable(${ProjectName}
         project/tasks/tasks.cpp
         project/tasks/tasks.h
         project/tasks/tasks_data.h
+        project/display/oled.cpp
+        project/display/oled.h
+        project/display/MenuUI.cpp
+        project/display/MenuUI.h
 )
 
 target_include_directories(${ProjectName} PRIVATE
