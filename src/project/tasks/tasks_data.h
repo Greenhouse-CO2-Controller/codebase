@@ -15,12 +15,15 @@
 #include "queue.h"
 #include "ModbusClient.h"
 #include "ModbusRegister.h"
+#include "project/eeprom/EEPROM.h"
+#include "project/eeprom/EEPROM_data.h"
 
 #define UART_NR 1
 #define UART_TX_PIN 4
 #define UART_RX_PIN 5
 #define BAUD_RATE 9600
 #define STOP_BITS 2
+#define EEPROM_ADDRESS 0x50
 
 extern SemaphoreHandle_t gpio_sem;
 extern QueueHandle_t co2Queue;
@@ -77,7 +80,8 @@ struct SystemObjects {
 
     // Mutex to protect Modbus bus
     SemaphoreHandle_t modbus_mutex;
-
+    Settings settings;
+    EEPROM eeprom;
     float co2_setpoint = 1200.0f; // for testing only
     //float co2_setpoint; // for user input
 
@@ -92,6 +96,8 @@ struct SystemObjects {
         t_sensor     = std::make_shared<ModbusRegister>(rtu_client, 241, 257);
 
         modbus_mutex = xSemaphoreCreateMutex();
+        eeprom.init(EEPROM_ADDRESS, &settings, sizeof(settings));
+        eeprom.eeprom_read_state();
     }
 };
 

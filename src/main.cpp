@@ -26,11 +26,19 @@ static led_data_s *led_data_for_isr = NULL;
 #define TESTING_EEPROM 0x01
 #define MAX_CO2_SETPOINT 1500
 #define MIN_CO2_SETPOINT 200
+#define I2C_SDA 16
+#define I2C_SCL 17
+#define FREQUENCY (100*1000)
 
 int main()
 {
     static led_params lp1 = { .pin = 20, .delay = 300 };
     stdio_init_all();
+    i2c_init(I2C, FREQUENCY);
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
     printf("\nBoot\n");
     co2Queue = xQueueCreate(1, sizeof(float));
     Uart_s ptr; // this is for uart function
@@ -39,7 +47,7 @@ int main()
 
 
 
-#if 1 //EEPROM
+#if 0 //EEPROM
     uint8_t co2_max_setpoint = 0xFF; // 0xFF just a initialize value.
     uint16_t co2_setpoint_write = MAX_CO2_SETPOINT;
     EEPROM co2_setpoint_eeprom(TESTING_EEPROM, &co2_setpoint_eeprom,sizeof(co2_max_setpoint));
@@ -55,6 +63,10 @@ int main()
 #if 1 //controller task
     xTaskCreate(controller_task,"controller_task",512,&sys,tskIDLE_PRIORITY+3,NULL);
 
+#endif
+
+#if 1
+    xTaskCreate(eeprom_task, "EEPROM", 1024, &sys, 1, nullptr);
 #endif
 #if 1 // modbus task--> control fan and reding sensors
     xTaskCreate(modbus_task, "Modbus", 512, &sys,

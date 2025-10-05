@@ -7,6 +7,8 @@
 
 
 #include <cstring>
+
+#include "EEPROM_data.h"
 #include "hardware/i2c.h"
 
 #define EEPROM_ADDRESS 0x50 // check the address
@@ -15,18 +17,22 @@
 
 class EEPROM {
 public:
-    EEPROM(uint16_t address, const void *data, size_t length);
+    EEPROM() = default;
+    //EEPROM(uint16_t address, const void *data, size_t length);
+    void init(uint16_t eeprom_addr, void* data_ptr, size_t len);
     void eeprom_write_state(void *write_data);
     void eeprom_read_state();
-    void eeprom_read_write(void *write_data);
+
+
+    //void eeprom_read_write(void *write_data);
 
 private:
-    uint16_t state_address;
-    const void *data;
-    size_t length;
-    i2c_inst_t *i2c;
-    uint8_t eeprom_address;
-    size_t address_size;
+    uint16_t state_address{0};
+    void* data{nullptr};
+    size_t length{0};
+    i2c_inst_t* i2c{I2C};
+    uint8_t eeprom_address{EEPROM_ADDRESS};
+    size_t address_size{ADDRESS_SIZE};
 };
 
 
