@@ -6,9 +6,14 @@
 #include "hardware/gpio.h"
 #include "PicoOsUart.h"
 #include "ssd1306.h"
-
-
+#include "timers.h"
+#include "project/tasks/tasks_data.h"
+#include "project/tasks/tasks.h"
 #include "hardware/timer.h"
+//my includes starts
+#include "project/eeprom/EEPROM.h"
+#include "project/eeprom/EEPROM_data.h"
+
 extern "C" {
 uint32_t read_runtime_ctr(void) {
     return timer_hw->timerawl;
@@ -16,7 +21,115 @@ uint32_t read_runtime_ctr(void) {
 }
 
 #include "blinker.h"
+static led_data_s *led_data_for_isr = NULL;
 
+#define TESTING_EEPROM 0x01
+int main()
+{
+    static led_params lp1 = { .pin = 20, .delay = 300 };
+    stdio_init_all();
+    printf("\nBoot\n");
+    co2Queue = xQueueCreate(1, sizeof(float));
+
+    //UI event Queue -Chedel
+    uiQueue = xQueueCreate(10, sizeof(gpio_event_s));
+
+    Uart_s ptr; // this is for uart function
+    Data sensor_ptr;
+    static SystemObjects sys;
+
+    gpio_sem = xSemaphoreCreateBinary();
+    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
+    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
+    //            tskIDLE_PRIORITY + 1, nullptr);
+
+    // ALL tasks from here
+
+#if 1 //controller task
+    xTaskCreate(controller_task,"controller_task",512,&sys,tskIDLE_PRIORITY+3,NULL);
+
+#endif
+#if 1 // modbus task--> control fan and reding sensors
+    xTaskCreate(modbus_task, "Modbus", 512, &sys,
+                tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
+
+    //xTaskCreate(AI1_counter_task, "AI1_counter", 512, nullptr,
+                //tskIDLE_PRIORITY+1,nullptr);
+#endif
+
+#if 0 // co2 injecting
+    xTaskCreate(co2_injecting_task, "CO2_Inject", 512, &sys, tskIDLE_PRIORITY + 2, nullptr);
+
+#endif
+#if 0 // not using now.
+    xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+#if 1 //UI task
+    xTaskCreate(ui_task, "SSD1306", 512, &sensor_ptr,
+                tskIDLE_PRIORITY + 1, nullptr); // changed (void *) nullptr --> &t_ptr
+#endif
+
+#if 0 // enable this to enter commands. But we have to set this in UI and cloud
+    xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);
+#endif
+
+#if 0 // not using now.
+    xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+
+    // network task
+    // EEPROM task
+    // Thinkspeak task
+
+    vTaskStartScheduler();
+
+    while(true){};
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//EEPROM testing
+/*
+uint8_t eeprom_testing = 0xFF; // 0xFF just a initialize value.
+uint8_t testing_write = 0x01;
+EEPROM testing(TESTING_EEPROM, &eeprom_testing,sizeof(eeprom_testing));
+testing.eeprom_read_state(); // this will store the data in eeprom_testing
+testing.eeprom_write_state(&testing_write); // write data to eerpom
+testing.eeprom_read_write(&testing_write); // do both read and write. This is under construction.
+*/
+// EEPROM testing ends
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+/*
 SemaphoreHandle_t gpio_sem;
 
 void gpio_callback(uint gpio, uint32_t events) {
@@ -98,9 +211,7 @@ void serial_task(void *param)
     }
 }
 
-void modbus_task(void *param);
-void display_task(void *param);
-void i2c_task(void *param);
+
 extern "C" {
     void tls_test(void);
 }
@@ -112,37 +223,65 @@ void tls_task(void *param)
     }
 }
 
-int main()
-{
-    static led_params lp1 = { .pin = 20, .delay = 300 };
-    stdio_init_all();
-    printf("\nBoot\n");
-
-    gpio_sem = xSemaphoreCreateBinary();
-    //xTaskCreate(blink_task, "LED_1", 256, (void *) &lp1, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(gpio_task, "BUTTON", 256, (void *) nullptr, tskIDLE_PRIORITY + 1, nullptr);
-    //xTaskCreate(serial_task, "UART1", 256, (void *) nullptr,
-    //            tskIDLE_PRIORITY + 1, nullptr);
-#if 0
-    xTaskCreate(modbus_task, "Modbus", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
+// our codes starts here
+void fan_task(void *param); // to control the fan speed
 
 
-    xTaskCreate(display_task, "SSD1306", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-#if 1
-    xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-#if 0
-    xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
-                tskIDLE_PRIORITY + 1, nullptr);
-#endif
-    vTaskStartScheduler();
+struct Program {
+    PicoOsUart uart;
+    TimerHandle_t inactivityTimer; // timer object
+    TimerHandle_t ledTimer; // timer object
+    std::string inputBuffer;
+    TickType_t lastLedToggleTick;
 
-    while(true){};
+    Program() : uart(0, 0, 1, 115200), inactivityTimer(nullptr), ledTimer(nullptr), lastLedToggleTick(0) {}
+};
+
+void processCommand(Program *ptr, const std::string &cmd) { // this is only for clion serial port purposes
+    if (cmd.rfind("ppm", 0) == 0) {
+        int val = atoi(cmd.substr(3).c_str());
+        if (val > 0 && val <= 1500) { //co2 setpoint should be between 0 to 1500
+            //co2SetPoint = val; // should create this
+            ptr->uart.send("CO2 set point updated\r\n");
+        } else {
+            ptr->uart.send("Invalid CO2 value (max 1500)\r\n");
+        }
+    }
+    else if (cmd.rfind("dec", 0) == 0) { //aCO2 dissipation--> 2.5 means 2.5 ppm/s
+        int val = atoi(cmd.substr(3).c_str());
+        //not complete
+    }
+    else if (cmd == "status") { // to view the status
+        char buf[64];
+        //snprintf(buf, sizeof(buf), "CO2=%d RH=%0.1f T=%0.1f\r\n", co2Read, rhRead/10.0, tRead/10.0); // after creation we can uncomment this
+        ptr->uart.send(buf);
+    }
+    else {
+        ptr->uart.send("unknown command\r\n");
+    }
 }
+
+void uartTask(void *param) {
+    auto *ptr = static_cast<Program*>(param);
+    uint8_t c;
+
+    while (true) {
+        if (ptr->uart.read(&c, 1, pdMS_TO_TICKS(100)) > 0) {
+            ptr->uart.write(&c, 1);
+            if (c == '\r' || c == '\n') {
+                const uint8_t newline[] = {'\r', '\n'};
+                ptr->uart.write(newline, sizeof(newline));
+                if (!ptr->inputBuffer.empty()) {
+                    processCommand(ptr, ptr->inputBuffer);
+                    ptr->inputBuffer.clear();
+                }
+            } else {
+                ptr->inputBuffer.push_back((char)c);
+            }
+        }
+    }
+}
+
 
 #include <cstdio>
 #include "ModbusClient.h"
@@ -167,6 +306,7 @@ int main()
 
 void modbus_task(void *param) {
 
+    auto *ptr = static_cast<tasks_return*>(param);
     const uint led_pin = 22;
     const uint button = 9;
 
@@ -178,44 +318,60 @@ void modbus_task(void *param) {
     gpio_set_dir(button, GPIO_IN);
     gpio_pull_up(button);
 
-    // Initialize chosen serial port
-    //stdio_init_all();
-
-    //printf("\nBoot\n");
-
 #ifdef USE_MODBUS
     auto uart{std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS)};
     auto rtu_client{std::make_shared<ModbusClient>(uart)};
-    ModbusRegister rh(rtu_client, 241, 256);
-    ModbusRegister t(rtu_client, 241, 257);
-    ModbusRegister produal(rtu_client, 1, 0);
-    produal.write(100);
+    ModbusRegister rh(rtu_client, 241, 256); //humidity
+    ModbusRegister t(rtu_client, 241, 257); // temperature
+    ModbusRegister c02(rtu_client, 240, 5); // C02 level
+    ModbusRegister produal(rtu_client, 1, 0); // to control the fan
+    vTaskDelay(pdMS_TO_TICKS(100));
+    produal.write(0); // need to set this based on the C02 level
     vTaskDelay((100));
-    produal.write(100);
+    produal.write(0); // 100 means 10%
 #endif
 
     while (true) {
 #ifdef USE_MODBUS
+
         gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
-        printf("RH=%5.1f%%\n", rh.read() / 10.0);
+        // these need to be output to oled.(and cloud if needed)
+        float val = rh.read();
+        printf("RH=%5.1f%%\n", val / 10.0);
         vTaskDelay(5);
-        printf("T =%5.1f%%\n", t.read() / 10.0);
+        ptr->t_return = t.read();
+        printf("T =%5.1f%%\n", ptr->t_return / 10.0);
+        vTaskDelay(5);
+        ptr->produal_return = produal.read();
+        printf("fan =%5.1f%%\n", ptr->produal_return/10.0);
+        vTaskDelay(5);
+        ptr->co2_return = c02.read();
+        printf("co2 =%5.1f\n", ptr->co2_return  /10.0);
         vTaskDelay(3000);
+
+
 #endif
     }
-
 
 }
 
 #include "ssd1306os.h"
-void display_task(void *param)
+void display_task(void *param) // for led display(UI)
 {
+    auto *ptr = static_cast<tasks_return*>(param);
     auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
     ssd1306os display(i2cbus);
     display.fill(0);
-    display.text("Boot", 0, 0);
+
+    //display.text("Display is ok", 0, 0);
+    // display ptr->rh.read()
     display.show();
     while(true) {
+        display.fill(0);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "RH=%5.1f%%", ptr->rt_return / 10.0);
+        display.text(buf, 0, 0);
+        display.show();
         vTaskDelay(100);
     }
 
@@ -257,3 +413,4 @@ void i2c_task(void *param) {
 
 
 }
+*/
