@@ -48,11 +48,11 @@ void modbus_task(void *param) {
             float rh, t, co2, fan;
 
             xSemaphoreTake(s->modbus_mutex, portMAX_DELAY); // look carefully on the variable with /10.0. I divided by 10 to match the values with simulater
-            rh = s->rh_sensor->read()/10.0;
-            t  = s->t_sensor->read()/10.0;
+            rh = s->rh_sensor->read()/10.0f;
+            t  = s->t_sensor->read()/10.0f;
             co2 = s->co2_sensor->read();
-            fan = s->fan_control->read()/10.0;
-            float co2_ppm = co2*10;
+            fan = s->fan_control->read()/10.0f;
+            float co2_ppm = co2*10.0f;
             xSemaphoreGive(s->modbus_mutex);
             xQueueOverwrite(co2Queue, &co2_ppm); // overwrite the old value with latest. so queue doesnt block when its full. for xQueueSend it blocks when its full.
 
@@ -116,6 +116,7 @@ void controller_task(void *param) {
 }
 
 void eeprom_task(void* param) { // only dummy data
+    // store wifi credential, co2 set point, max and low setpoint
     auto* s = static_cast<SystemObjects*>(param);
     vTaskDelay(pdMS_TO_TICKS(1000));
     float dummy_setpoint = 1300.0f;
@@ -152,25 +153,46 @@ void ui_task(void *param) {
     }
 }
 
-void display_task(void *param) // for led display(UI)
-{
-    auto *ptr = static_cast<Data*>(param);
-    auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
-    ssd1306os display(i2cbus);
-    display.fill(0);
 
-    //display.text("Display is ok", 0, 0);
-    // display ptr->rh.read()
-    display.show();
-    while(true) {
-        display.fill(0);
-        char buf[32];
-        display.text("boot", 0, 0);
-        display.show();
-        vTaskDelay(100);
+
+void wifi_task(void *param) {
+    if (cyw43_arch_init()) {
+        printf("Wi-Fi init failed!\n");
+        vTaskDelete(NULL);
+    }
+    cyw43_arch_enable_sta_mode();
+    printf("Connecting to Wi-Fi: %s\n", WIFI_SSID);
+
+    int result = cyw43_arch_wifi_connect_timeout_ms(
+        WIFI_SSID, WIFI_PASSWORD,
+        CYW43_AUTH_WPA2_AES_PSK, 30000);
+
+    if (result) {
+        printf("Wi-Fi connection failed (%d)\n", result);
+        // Optional: retry loop
+        while (1) {
+            printf("Retrying Wi-Fi...\n");
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            result = cyw43_arch_wifi_connect_timeout_ms(
+                WIFI_SSID, WIFI_PASSWORD,
+                CYW43_AUTH_WPA2_AES_PSK, 30000);
+            if (!result) break;
+        }
+    }
+
+    printf("Connected to Wi-Fi!\n");
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        // runs forever
     }
 }
 
+void cloud_task(void *param) {
+    // run every 15s (limitation on free account)
+    //
+}
 
 
 void AI1_counter_task(void *pvParameters) {
@@ -262,10 +284,6 @@ void uartTask(void *param) {
     }
 }
 
-void relay_task(void *param) {
-    // open for 1 seconds and wait for 45 secs
-}
-
 void blink_task(void *param)
 {
     auto lpr = (led_params *) param;
@@ -310,7 +328,24 @@ void gpio_task(void *param) {
     }
 }
 
+void display_task(void *param) // for led display(UI)
+{
+    auto *ptr = static_cast<Data*>(param);
+    auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
+    ssd1306os display(i2cbus);
+    display.fill(0);
 
+    //display.text("Display is ok", 0, 0);
+    // display ptr->rh.read()
+    display.show();
+    while(true) {
+        display.fill(0);
+        char buf[32];
+        display.text("boot", 0, 0);
+        display.show();
+        vTaskDelay(100);
+    }
+}
 
 
 

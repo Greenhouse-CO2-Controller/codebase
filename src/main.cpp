@@ -14,6 +14,7 @@
 #include "project/eeprom/EEPROM.h"
 #include "project/eeprom/EEPROM_data.h"
 
+
 extern "C" {
 uint32_t read_runtime_ctr(void) {
     return timer_hw->timerawl;
@@ -66,7 +67,7 @@ int main()
 #endif
 
 #if 1
-    xTaskCreate(eeprom_task, "EEPROM", 1024, &sys, 1, nullptr);
+    xTaskCreate(eeprom_task, "EEPROM", 512, &sys, tskIDLE_PRIORITY + 2, nullptr);
 #endif
 #if 1 // modbus task--> control fan and reding sensors
     xTaskCreate(modbus_task, "Modbus", 512, &sys,
@@ -74,6 +75,10 @@ int main()
 
     //xTaskCreate(AI1_counter_task, "AI1_counter", 512, nullptr,
                 //tskIDLE_PRIORITY+1,nullptr);
+#endif
+
+#if 1 // connecting to wifi
+    xTaskCreate(wifi_task, "WiFi", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
 #endif
 
 #if 0 // co2 injecting
