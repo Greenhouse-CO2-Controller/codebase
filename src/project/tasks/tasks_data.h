@@ -25,6 +25,14 @@
 #define STOP_BITS 2
 #define EEPROM_ADDRESS 0x50
 
+#define ROTARY_A   10    // no pull
+#define ROTARY_B   11    // no pull
+#define ROTARY_SW  12    // with pull-up
+#define BUTTON_DEBOUNCE_MS 250
+#define BUTTON_2 7
+#define BUTTON_1 8
+#define BUTTON_0 9
+
 extern SemaphoreHandle_t gpio_sem;
 extern QueueHandle_t co2Queue;
 
@@ -43,22 +51,6 @@ struct Data {
     float co2_setpoint;
 };
 
-typedef enum {
-    rot_rotate_clockwise,
-    rot_rotate_counterclockwise
-}rotation_event_t;
-
-typedef enum {
-    event_button,
-    event_encoder
-}event_type_t;
-
-typedef struct {
-    rotation_event_t direction;
-    event_type_t type;
-    uint32_t timestamp;
-}gpio_event_s;
-
 typedef struct {
     bool led_state;
     int led_frequency;
@@ -67,6 +59,14 @@ typedef struct {
     QueueHandle_t queue;
     QueueHandle_t gpio_semaphore;
 } led_data_s;
+
+
+enum ButtonEvent {
+    BTN_UP,
+    BTN_DOWN,
+    BTN_OK
+};
+
 
 struct SystemObjects {
     std::shared_ptr<PicoOsUart> uart;
@@ -79,11 +79,17 @@ struct SystemObjects {
     std::shared_ptr<ModbusRegister> t_sensor;
 
     // Mutex to protect Modbus bus
+    QueueHandle_t buttonQueue;
+    QueueHandle_t encoderQueue;
+    float temperature;
+    float humidity;
+    float fanSpeed;
+    float co2_setpoint;
     SemaphoreHandle_t modbus_mutex;
     Settings settings;
     EEPROM eeprom;
-    float co2_setpoint = 1200.0f; // for testing only
-    //float co2_setpoint; // for user input
+    //float co2_setpoint = 1200.0f; // for testing only
+    float confirmed_co2_setpoint;
 
     SystemObjects() {
         uart = std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS);

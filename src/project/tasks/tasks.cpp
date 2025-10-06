@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include "tasks_data.h"
 #include "ssd1306os.h"
+#include "project/display/oled.h"
+
 
 SemaphoreHandle_t gpio_sem = nullptr;
 QueueHandle_t co2Queue = nullptr;
@@ -56,8 +58,8 @@ void modbus_task(void *param) {
             xSemaphoreGive(s->modbus_mutex);
             xQueueOverwrite(co2Queue, &co2_ppm); // overwrite the old value with latest. so queue doesnt block when its full. for xQueueSend it blocks when its full.
 
-            printf("RH=%5.1f%%, T=%5.1fC, CO2=%5.1f ppm, Fan AO1=%5.1f%%, Pulses=%u\n",
-                   rh , t , co2_ppm, fan , pulses);
+            //printf("RH=%5.1f%%, T=%5.1fC, CO2=%5.1f ppm, Fan AO1=%5.1f%%, Pulses=%u\n",
+                   //rh , t , co2_ppm, fan , pulses);
 
             last_display_time = now;
         }
@@ -68,20 +70,23 @@ void modbus_task(void *param) {
 
 void controller_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
+    s->eeprom.eeprom_read_state();
+    s->confirmed_co2_setpoint = s->settings.co2_setpoint;
+    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);
     const TickType_t inject_time = pdMS_TO_TICKS(1500);  // 2s injection
     const TickType_t wait_time = pdMS_TO_TICKS(30000);
     float co2level; //actual co2
-    float setpoint = s->co2_setpoint;
+    float setpoint = s->confirmed_co2_setpoint;
     while (true) {
         if (xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500))) {
             float fanlevel = 0.0f;
             float min_fanlevel = 300.0f;
             float max_fanlevel = 1000.0f;
             float maxCO2 = 2000.0f;
-
+            printf("co2 setpoint in the controller: %.0f\n", setpoint);
             if (co2level < setpoint - 50) {
                 fanlevel = 0;
                 xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
@@ -118,42 +123,125 @@ void controller_task(void *param) {
 void eeprom_task(void* param) { // only dummy data
     // store wifi credential, co2 set point, max and low setpoint
     auto* s = static_cast<SystemObjects*>(param);
+    /*
     vTaskDelay(pdMS_TO_TICKS(1000));
     float dummy_setpoint = 1300.0f;
     s->settings.co2_setpoint = dummy_setpoint;
     s->eeprom.eeprom_write_state(&s->settings);
     s->eeprom.eeprom_read_state();
     printf("EEPROM read: CO2 setpoint=%.2f\n", s->settings.co2_setpoint);
-
+    */
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
-
-void ui_task(void *param) {
+void button_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
-    auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
-    // --- Display ---
-    ssd1306os display(i2cbus);
-    display.fill(0);
-    display.text("Group 6", 38,10);
-    display.text("Mark,Visal", 27,30);
-    display.text("Chedel", 42,40);
-    display.show();
-    vTaskDelay(pdMS_TO_TICKS(3000));
+    static bool lastUp = false;
+    static bool lastDown = false;
+    static bool lastOk = false;
+
+    ButtonEvent btn;
+
     while (true) {
-        display.fill(0);
-        display.rect(22,39,88,10,1,true); // SET NETWORK
-        //display.rect(22,24,88,10,1,true); // when this is on we need to set color 0
-        display.text("SET C02", 22, 10, 1);
-        display.text("SHOW STATUS", 22, 25,1);
-        display.text("SET NETWORK", 22, 40, 0);
-        display.show();
-        vTaskDelay(100);
+        bool currUp = gpio_get(BUTTON_2);
+        bool currDown = gpio_get(BUTTON_0);
+        bool currOk = gpio_get(BUTTON_1);
+
+        if (currUp && !lastUp) {  // button just pressed
+            btn = BTN_UP;
+            xQueueSend(s->buttonQueue, &btn, 0);
+        }
+
+        if (currDown && !lastDown) {
+            btn = BTN_DOWN;
+            xQueueSend(s->buttonQueue, &btn, 0);
+
+        }
+
+        if (currOk && !lastOk) {
+            btn = BTN_OK;
+            xQueueSend(s->buttonQueue, &btn, 0);
+
+        }
+
+        lastUp = currUp;
+        lastDown = currDown;
+        lastOk = currOk;
+
+        vTaskDelay(pdMS_TO_TICKS(50)); // 50ms debounce
     }
 }
 
 
+
+void ui_task(void *param) {
+    auto *s = static_cast<SystemObjects*>(param);
+    s->eeprom.eeprom_read_state();
+    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+    // create OLED object
+    auto i2cbus = std::make_shared<PicoI2C>(1, 400000);
+    Oled display(i2cbus);
+
+    display.clear();
+    display.drawText(0, 0, "Booting...");
+    display.show();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ButtonEvent btn;
+    //float setpoint = s->co2_setpoint;
+    //float co2_ppm = 0.0f;
+
+    float setpoint = s->co2_setpoint;
+    float confirmed_setpoint = s->confirmed_co2_setpoint;
+    while (true) {
+
+        // read CO2 directly from modbus
+        xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
+        float co2_ppm = s->co2_sensor->read() * 10.0f;
+        float fanlevel = s->fan_control->read()/10.0f;
+        float rh = s->rh_sensor->read()/10.0f;
+        float t = s->t_sensor->read()/10.0f;
+        xSemaphoreGive(s->modbus_mutex);
+
+        if (xQueueReceive(s->buttonQueue, &btn,0)) {
+            switch (btn) {
+                case BTN_UP:
+                    setpoint += 10.0f;
+                    if (setpoint > 1500.0f) setpoint = 1500.0f;
+                    break;
+                case BTN_DOWN:
+                    setpoint -= 10.0f;
+                    if (setpoint < 200.0f) setpoint = 400.0f;
+                    break;
+                case BTN_OK:
+                    confirmed_setpoint = setpoint; // when button press it saves the set point to confirmed_co2_setpoint
+                    s->settings.co2_setpoint = confirmed_setpoint;
+                    s->eeprom.eeprom_write_state(&s->settings);
+                    s->eeprom.eeprom_read_state();
+                    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+                    break;
+            }
+        }
+        // update display
+        char line1[32], line2[32], line3[32], line4[32], line5[32], line6[32], line7[32];
+        snprintf(line1, sizeof(line1), "CO2: %.0fppm", co2_ppm);
+        snprintf(line2, sizeof(line2), "Setpt: %.0fppm", confirmed_setpoint);
+        snprintf(line3, sizeof(line3), "RH:%.0f T:%.0f F:%.0f" , rh, t, fanlevel);
+        snprintf(line4, sizeof(line4), "Setpoint: %.0f ppm", setpoint);
+        snprintf(line5, sizeof(line5), "SSID: ");
+        snprintf(line6, sizeof(line6), "PWD: ");
+        display.clear();
+        display.drawText(0, 0, line1);
+        display.drawText(0, 10, line2);
+        display.drawText(0, 20, line3);
+        display.drawText(0, 30, line4);
+        display.drawText(0, 40, line5);
+        display.drawText(0, 50, line6);
+        display.show();
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
 
 void wifi_task(void *param) {
     if (cyw43_arch_init()) {

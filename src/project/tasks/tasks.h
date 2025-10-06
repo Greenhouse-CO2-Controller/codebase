@@ -33,6 +33,8 @@ void co2_injecting_task(void *param);
 void eeprom_task(void *param);
 void wifi_task(void *param);
 void cloud_task(void *param);
+void encoder_task(void *param);
+void button_task(void *param);
 
 //Display
 void ui_task(void *param);
