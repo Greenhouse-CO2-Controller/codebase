@@ -59,7 +59,7 @@ int main()
     //sys.confirmed_co2_setpoint = sys.settings.co2_setpoint;
     buttonQueue = xQueueCreate(5, sizeof(ButtonEvent));  // queue can hold 5 button events
     sys.buttonQueue = buttonQueue;
-
+    //sys.co2_setpoint = 800;
 
 #if 0 //EEPROM
     uint8_t co2_max_setpoint = 0xFF; // 0xFF just a initialize value.
@@ -91,7 +91,7 @@ int main()
 #endif
 
 #if 1
-    xTaskCreate(button_task, "Button", 512, &sys,tskIDLE_PRIORITY + 1,nullptr);
+    xTaskCreate(button_task, "Button", 512, &sys,tskIDLE_PRIORITY + 2,nullptr);
 #endif
 #if 1
     xTaskCreate(eeprom_task, "EEPROM", 512, &sys, tskIDLE_PRIORITY + 2, nullptr);
