@@ -6,9 +6,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-EEPROM::EEPROM(uint16_t address, const void *data, size_t length)
-    : state_address(address), data(data), length(length), i2c(I2C), eeprom_address(EEPROM_ADDRESS), address_size(ADDRESS_SIZE) {}
-
+void EEPROM::init(uint16_t eeprom_addr, void* data_ptr, size_t len) {
+    state_address = eeprom_addr;
+    data = data_ptr;
+    length = len;
+}
 void EEPROM::eeprom_write_state(void *write_data) {
     uint8_t buffer[address_size + length];
     buffer[0] = (state_address >> 8) & 0xFF;
