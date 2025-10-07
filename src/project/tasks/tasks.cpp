@@ -70,14 +70,11 @@ void modbus_task(void *param) {
 
 void controller_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
-    //s->eeprom.eeprom_read_state();
-    //s->confirmed_co2_setpoint = s->settings.co2_setpoint;
-    //printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);
     const TickType_t inject_time = pdMS_TO_TICKS(1500);  // 2s injection
-    const TickType_t wait_time = pdMS_TO_TICKS(30000);
+    TickType_t wait_time = pdMS_TO_TICKS(30000);
     float co2level; //actual co2
     float setpoint = s->confirmed_co2_setpoint;
     while (true) {
@@ -94,16 +91,16 @@ void controller_task(void *param) {
                 s->fan_control->write(fanlevel);
                 xSemaphoreGive(s->modbus_mutex);
                 gpio_put(CO2_VALVE_GPIO, 1);
-
                 s->injecting = true;
                 vTaskDelay(inject_time);
                 s->injecting = false;
                 s->waiting = true;
                 gpio_put(CO2_VALVE_GPIO, 0);
+                if (co2level>s->confirmed_co2_setpoint + 50) {
+                    wait_time = pdMS_TO_TICKS(0);
+                }
                 vTaskDelay(wait_time);
                 s->waiting = false;
-
-                printf("Waiting done...\n");
 
             } else if (co2level > s->confirmed_co2_setpoint + 50) {
                 s->fan_running = true;
@@ -158,23 +155,46 @@ void button_task(void *param) {
         bool up_button = gpio_get(BUTTON_2);
         bool down_button = gpio_get(BUTTON_0);
         bool confirm_button = gpio_get(BUTTON_1);
-#if 0
-        while (true) {
-            bool current_up = gpio_get(BUTTON_2);
-            if (current_up != lastState) {
-                btn = BTN_UP;
-                xQueueSend(s->buttonQueue, &btn, 0);
-            }
-            if (current_up) {
-                btn = BTN_UP;
-                xQueueSend(s->buttonQueue, &btn, 0);
-                vTaskDelay(repeatDelay);
-            }else {
-                vTaskDelay(pdMS_TO_TICKS(50));
-            }
-        }
-#endif
+        TickType_t now = xTaskGetTickCount();
 #if 1
+        if (!up_button) {
+            if (!lastUp) {
+                btn = BTN_UP;
+                xQueueSend(s->buttonQueue, &btn, 0);
+                lastUp = now;
+            }else if ((now-lastDown) >= pdMS_TO_TICKS(50)) {
+                btn = BTN_UP;
+                xQueueSend(s->buttonQueue, &btn, 0);
+                lastUp += pdMS_TO_TICKS(500);
+            }
+        }else {
+            lastDown = 0;
+        }
+
+        if (!down_button) {
+            if (!lastDown) {
+                btn = BTN_DOWN;
+                xQueueSend(s->buttonQueue, &btn, 0);
+                lastDown = now;
+            }else if ((now-lastOk) >= pdMS_TO_TICKS(50)) {
+                btn = BTN_DOWN;
+                xQueueSend(s->buttonQueue, &btn, 0);
+                lastDown += pdMS_TO_TICKS(500);
+            }
+
+        }else {
+            lastDown =0;
+        }
+        if (!confirm_button && lastOk) {
+            btn = BTN_OK;
+            xQueueSend(s->buttonQueue, &btn, 0);
+        }
+        lastOk = confirm_button;
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+#endif
+#if 0
 
         if (up_button && !lastUp) {  // button just pressed
             btn = BTN_UP;
@@ -198,9 +218,9 @@ void button_task(void *param) {
         vTaskDelay(pdMS_TO_TICKS(50)); // 50ms debounce
 
     }
-#endif
-}
 
+}
+#endif
 
 void ui_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
@@ -214,6 +234,7 @@ void ui_task(void *param) {
     ButtonEvent btn;
     //s->co2_setpoint = 800; // initial value
 
+
     while (true) {
 
         // read CO2 directly from modbus
@@ -223,7 +244,7 @@ void ui_task(void *param) {
         float rh = s->rh_sensor->read()/10.0f;
         float t = s->t_sensor->read()/10.0f;
         xSemaphoreGive(s->modbus_mutex);
-
+#if 0
         if (xQueueReceive(s->buttonQueue, &btn,0)) {
             switch (btn) {
                 case BTN_UP:
@@ -246,6 +267,70 @@ void ui_task(void *param) {
                     break;
             }
         }
+#endif
+#if 1
+        static TickType_t last_up_apply = 0;
+        static TickType_t last_down_apply = 0;// remembers when we last applied +30
+        //bool saw_up = false;
+        bool up_press_detected = false;
+        bool down_press_detected = false;
+        while (xQueueReceive(s->buttonQueue, &btn, 0) == pdTRUE) {
+            switch (btn) {
+                case BTN_UP:
+                    up_press_detected = true;                              // remember that we saw at least one UP
+                    //saw_up = true;
+                    printf("up pressed\n");
+                    break;
+
+                case BTN_DOWN:
+                    down_press_detected = true;
+                    //s->co2_setpoint -= 10.0f;
+                    printf("down pressed\n");
+                    //if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
+                    break;
+
+                case BTN_OK:
+                    printf("confirm pressed\n");
+                    s->confirmed_co2_setpoint = s->co2_setpoint;
+                    printf("confiremed setpoint changed: %.2f\n", s->confirmed_co2_setpoint);
+                    break;
+            }
+        }
+
+        // Apply at most one +30 every 500 ms, no matter how many UPs arrived
+        /*
+        if (saw_up) {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_up_apply) >= pdMS_TO_TICKS(50)) {  // 500 ms window
+                s->co2_setpoint += 10.0f;
+                if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f; // <-- clamp FIX
+                last_up_apply = now;
+            }
+        }
+        */
+        if (up_press_detected) {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_up_apply) >= pdMS_TO_TICKS(150)) {
+                s->co2_setpoint += 10.0f;
+                if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f;
+                last_up_apply = now;
+                //last_down_apply = 0;
+            }
+        }
+
+        if (down_press_detected) {
+            TickType_t now_down = xTaskGetTickCount();
+            if ((now_down - last_down_apply) >= pdMS_TO_TICKS(150)) {
+                s->co2_setpoint -= 10.0f;
+                if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
+                last_down_apply = now_down;
+                //last_up_apply = 0;
+            }
+        }
+
+
+#endif
+
         // update display
         char line1[32], line2[32], line3[32], line4[32], line5[32], line6[32], line_wait[32];
         if (s->waiting) {
@@ -291,7 +376,6 @@ void wifi_task(void *param) {
 
     if (result) {
         printf("Wi-Fi connection failed (%d)\n", result);
-        // Optional: retry loop
         while (1) {
             printf("Retrying Wi-Fi...\n");
             vTaskDelay(pdMS_TO_TICKS(5000));
@@ -449,101 +533,3 @@ void gpio_task(void *param) {
         }
     }
 }
-
-void display_task(void *param) // for led display(UI)
-{
-    auto *ptr = static_cast<Data*>(param);
-    auto i2cbus{std::make_shared<PicoI2C>(1, 400000)};
-    ssd1306os display(i2cbus);
-    display.fill(0);
-
-    //display.text("Display is ok", 0, 0);
-    // display ptr->rh.read()
-    display.show();
-    while(true) {
-        display.fill(0);
-        char buf[32];
-        display.text("boot", 0, 0);
-        display.show();
-        vTaskDelay(100);
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-void modbus_task(void *param) {
-
-    auto *ptr = static_cast<tasks_return*>(param);
-    auto *s = static_cast<SystemObjects*>(param);
-    const uint led_pin = 22;
-    const uint button = 9;
-
-    // Initialize LED pin
-    gpio_init(led_pin);
-    gpio_set_dir(led_pin, GPIO_OUT);
-
-    gpio_init(button);
-    gpio_set_dir(button, GPIO_IN);
-    gpio_pull_up(button);
-
-#ifdef USE_MODBUS
-    auto uart{std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS)};
-    auto rtu_client{std::make_shared<ModbusClient>(uart)};
-    ModbusRegister rh(rtu_client, 241, 256); //humidity
-    ModbusRegister t(rtu_client, 241, 257); // temperature
-    ModbusRegister c02(rtu_client, 240, 5); // C02 level
-    ModbusRegister produal(rtu_client, 1, 0); // to control the fan
-    ModbusRegister fan_counter(rtu_client, 1, 30005); // AI1 counter
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-    produal.write(0); // move this to controller task and  set the speed based on the C02 level
-    vTaskDelay((100));
-    produal.write(0); // 100 means 10%
-
-#endif
-    uint32_t last_display_time =0;
-    while (true) {
-#ifdef USE_MODBUS
-
-        //gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
-        // these need to be output to oled.(and cloud if needed)
-        uint16_t pulses = fan_counter.read();
-        ptr->pulse_count = pulses;
-
-        // Read other sensors less frequently (every 3s)
-        uint32_t now = xTaskGetTickCount();
-        if(now - last_display_time > pdMS_TO_TICKS(1495)) {
-            ptr->rh_return = rh.read();
-            ptr->t_return  = t.read();
-            ptr->co2_return = c02.read();
-            xQueueOverwrite(co2Queue, &ptr->co2_return);
-            ptr->produal_return = produal.read();
-
-            printf("RH=%5.1f%%, T=%5.1fC, CO2=%5.1f ppm, Fan AO1=%5.1f%%, Pulses=%u\n",
-                   ptr->rh_return/10.0, ptr->t_return/10.0, ptr->co2_return/10.0,
-                   ptr->produal_return/10.0, pulses);
-            if (pulses>0) {
-                printf("Fan is malfunctioning"); // display this in UI
-            }
-            gpio_put(led_pin, !gpio_get(led_pin));
-            last_display_time = now;
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(5));
-
-#endif
-    }
-}
-*/

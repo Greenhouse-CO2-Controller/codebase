@@ -60,13 +60,11 @@ typedef struct {
     QueueHandle_t gpio_semaphore;
 } led_data_s;
 
-
 enum ButtonEvent {
     BTN_UP,
     BTN_DOWN,
     BTN_OK
 };
-
 
 struct SystemObjects {
     std::shared_ptr<PicoOsUart> uart;
@@ -91,7 +89,6 @@ struct SystemObjects {
     SemaphoreHandle_t modbus_mutex;
     Settings settings;
     EEPROM eeprom;
-    //float co2_setpoint = 1200.0f; // for testing only
     float confirmed_co2_setpoint=800;
 
     SystemObjects() {
