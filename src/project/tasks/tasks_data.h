@@ -64,11 +64,20 @@ typedef struct {
 enum ButtonEvent {
     BTN_UP,
     BTN_DOWN,
-    BTN_OK
+    BTN_OK,
+    //enable disable edit for navigating C02, SSID & PWD chedel
+    BTN_EDIT_ON,
+    BTN_EDIT_OFF
+    //enable disable edit for navigating C02, SSID & PWD chedel
 };
 
 
 struct SystemObjects {
+
+    //enable disable edit for navigating C02, SSID & PWD chedel
+    volatile bool edit_enabled = false;
+
+
     std::shared_ptr<PicoOsUart> uart;
     std::shared_ptr<ModbusClient> rtu_client;
 

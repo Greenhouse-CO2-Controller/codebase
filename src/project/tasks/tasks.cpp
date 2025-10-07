@@ -145,6 +145,101 @@ void eeprom_task(void* param) { // only dummy data
     }
 }
 
+
+// button_task WITH enable disable edit chedel
+void button_task(void *param) {
+
+    auto *s = static_cast<SystemObjects*>(param);
+
+    // --- INIT: active-low buttons (pressed = 0) ---
+    gpio_init(BUTTON_2); gpio_set_dir(BUTTON_2, GPIO_IN); gpio_set_pulls(BUTTON_2, true, false); // UP (GPIO 7)
+    gpio_init(BUTTON_0); gpio_set_dir(BUTTON_0, GPIO_IN); gpio_set_pulls(BUTTON_0, true, false); // DOWN (GPIO 9)
+    gpio_init(BUTTON_1); gpio_set_dir(BUTTON_1, GPIO_IN); gpio_set_pulls(BUTTON_1, true, false); // OK  (GPIO 8)
+
+    // --- NEW: encoder push switch on GPIO 12 (active-low) ---
+    gpio_init(ROTARY_SW); gpio_set_dir(ROTARY_SW, GPIO_IN); gpio_set_pulls(ROTARY_SW, true, false);
+
+    static TickType_t up_last   = 0;
+    static TickType_t down_last = 0;
+    static bool lastOk = true;
+
+    // NEW: edge + debounce for encoder push
+    bool last_sw = true;                       // released at idle (=1)
+    TickType_t sw_debounce_until = 0;
+
+    while (true) {
+        TickType_t now = xTaskGetTickCount();
+
+        // ---------- NEW: toggle edit mode on encoder press ----------
+        bool sw_now = gpio_get(ROTARY_SW);     // 1=released, 0=pressed
+        if (!sw_now && last_sw && now >= sw_debounce_until) { // falling edge
+            s->edit_enabled = !s->edit_enabled;
+
+            // optional: notify UI about mode change
+            ButtonEvent e = s->edit_enabled ? BTN_EDIT_ON : BTN_EDIT_OFF;
+            xQueueSend(s->buttonQueue, &e, 0);
+
+            // reset repeat timers so re-enable doesn't “burst”
+            up_last = 0;
+            down_last = 0;
+
+            sw_debounce_until = now + pdMS_TO_TICKS(200); // debounce
+        }
+        last_sw = sw_now;
+
+        // ---------- UP/DOWN repeat ONLY when edit is enabled ----------
+        if (s->edit_enabled) {
+            // ---- UP every 500 ms while held ----
+            bool currUp = gpio_get(BUTTON_2);
+            if (!currUp) {
+                if (up_last == 0) {
+                    ButtonEvent e = BTN_UP;
+                    xQueueSend(s->buttonQueue, &e, 0);
+                    up_last = now;
+                } else if ((now - up_last) >= pdMS_TO_TICKS(500)) {
+                    ButtonEvent e = BTN_UP;
+                    xQueueSend(s->buttonQueue, &e, 0);
+                    up_last += pdMS_TO_TICKS(500);
+                }
+            } else {
+                up_last = 0;
+            }
+
+            // ---- DOWN every 500 ms while held ----
+            bool currDown = gpio_get(BUTTON_0);
+            if (!currDown) {
+                if (down_last == 0) {
+                    ButtonEvent e = BTN_DOWN;
+                    xQueueSend(s->buttonQueue, &e, 0);
+                    down_last = now;
+                } else if ((now - down_last) >= pdMS_TO_TICKS(500)) {
+                    ButtonEvent e = BTN_DOWN;
+                    xQueueSend(s->buttonQueue, &e, 0);
+                    down_last += pdMS_TO_TICKS(500);
+                }
+            } else {
+                down_last = 0;
+            }
+        } else {
+            // when disabled, ensure timers don’t accumulate
+            up_last = 0;
+            down_last = 0;
+        }
+
+        // OK (confirm) can remain always-on, or also gate it—your choice
+        bool currOk = gpio_get(BUTTON_1);
+        if (!currOk && lastOk) {
+            ButtonEvent e = BTN_OK;
+            xQueueSend(s->buttonQueue, &e, 0);
+        }
+        lastOk = currOk;
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+// button_task w/o enable disable edit chedel
+/*
 void button_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     //chedel
@@ -214,7 +309,7 @@ void button_task(void *param) {
         vTaskDelay(pdMS_TO_TICKS(50));             // your existing poll rate
     }
 }
-
+*/
 
 void ui_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
@@ -227,7 +322,7 @@ void ui_task(void *param) {
     display.clear();
     display.drawText(0, 0, "Booting...");
     display.show();
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(.5));
     ButtonEvent btn;
     //float setpoint = s->co2_setpoint;
     //float co2_ppm = 0.0f;
@@ -282,7 +377,7 @@ void ui_task(void *param) {
                 break;
 
             case BTN_DOWN:
-                s->co2_setpoint -= 10.0f;
+                s->co2_setpoint -= 5.0f;
                 printf("down pressed\n");
                 if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                 break;
@@ -299,12 +394,11 @@ void ui_task(void *param) {
         if (saw_up) {
             TickType_t now = xTaskGetTickCount();
             if ((now - last_up_apply) >= pdMS_TO_TICKS(50)) {  // 500 ms window
-                s->co2_setpoint += 10.0f;
+                s->co2_setpoint += 5.0f;
                 if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f; // <-- clamp FIX
                 last_up_apply = now;
             }
         }
-
 
         // update display
         char line1[32], line2[32], line3[32], line4[32], line5[32], line6[32], line7[32], line_wait[32];
@@ -316,6 +410,7 @@ void ui_task(void *param) {
         else if (!s->waiting && !s->injecting){
             strcpy(line_wait, "N-WI");
         }
+
         snprintf(line1, sizeof(line1), "CO2: %.0fppm", co2_ppm);
         snprintf(line2, sizeof(line2), "Setpt: %.0fppm", s->confirmed_co2_setpoint);
         snprintf(line3, sizeof(line3), "RH:%.0f T:%.0f F:%.0f" , rh, t, fanlevel);
@@ -329,11 +424,18 @@ void ui_task(void *param) {
         display.drawText(0, 30, line4);
         display.drawText(0, 40, line5);
         display.drawText(0, 50, line6);
+
+
+
+
+
+
         display.show();
 
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
+
 void wifi_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     if (cyw43_arch_init()) {

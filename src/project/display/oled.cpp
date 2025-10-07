@@ -3,6 +3,10 @@
 //
 
 #include "oled.h"
+//chedel
+#include <cstring>
+#include <cstdio>
+//chedel
 
 Oled::Oled(std::shared_ptr<PicoI2C> bus)
     : display(bus) {
@@ -37,3 +41,6 @@ void Oled::updateDisplay(int selectedIndex, int co2Value, float temp, float rh, 
 
     show();
 }
+
+
+

@@ -7,7 +7,6 @@
 ModbusRegister::ModbusRegister(std::shared_ptr<ModbusClient> client_, int server_address, int register_address,
                                bool holding_register) :
         client(client_), server(server_address), reg_addr(register_address), hr(holding_register) {
-
 }
 
 uint16_t ModbusRegister::read() {
