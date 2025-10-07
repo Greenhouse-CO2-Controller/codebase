@@ -70,9 +70,9 @@ void modbus_task(void *param) {
 
 void controller_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
-    s->eeprom.eeprom_read_state();
-    s->confirmed_co2_setpoint = s->settings.co2_setpoint;
-    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+    //s->eeprom.eeprom_read_state();
+    //s->confirmed_co2_setpoint = s->settings.co2_setpoint;
+    //printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);
@@ -86,8 +86,8 @@ void controller_task(void *param) {
             float min_fanlevel = 300.0f;
             float max_fanlevel = 1000.0f;
             float maxCO2 = 2000.0f;
-            printf("co2 setpoint in the controller: %.0f\n", setpoint);
-            if (co2level < setpoint - 50) {
+            printf("co2 setpoint in the controller: %.0f\n", s->confirmed_co2_setpoint);
+            if (co2level < s->confirmed_co2_setpoint - 50) {
                 fanlevel = 0;
                 xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
                 s->fan_control->write(fanlevel);
@@ -98,7 +98,7 @@ void controller_task(void *param) {
                 vTaskDelay(wait_time);
                 printf("Waiting done...\n");
 
-            } else if (co2level > setpoint + 50) {
+            } else if (co2level > s->confirmed_co2_setpoint + 50) {
                 if (co2level > maxCO2) {
                     fanlevel = max_fanlevel;
                 } else {
@@ -135,6 +135,7 @@ void eeprom_task(void* param) { // only dummy data
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
+
 void button_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     static bool lastUp = false;
@@ -174,11 +175,10 @@ void button_task(void *param) {
 }
 
 
-
 void ui_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
-    s->eeprom.eeprom_read_state();
-    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+    //s->eeprom.eeprom_read_state();
+    //printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
     // create OLED object
     auto i2cbus = std::make_shared<PicoI2C>(1, 400000);
     Oled display(i2cbus);
@@ -191,8 +191,10 @@ void ui_task(void *param) {
     //float setpoint = s->co2_setpoint;
     //float co2_ppm = 0.0f;
 
-    float setpoint = s->co2_setpoint;
-    float confirmed_setpoint = s->confirmed_co2_setpoint;
+    //float setpoint = s->co2_setpoint;
+    float setpoint;
+    s->co2_setpoint = 800;
+    //s->confirmed_co2_setpoint=800;
     while (true) {
 
         // read CO2 directly from modbus
@@ -206,28 +208,31 @@ void ui_task(void *param) {
         if (xQueueReceive(s->buttonQueue, &btn,0)) {
             switch (btn) {
                 case BTN_UP:
-                    setpoint += 10.0f;
-                    if (setpoint > 1500.0f) setpoint = 1500.0f;
+                    s->co2_setpoint += 30.0f;
+                    if (s->co2_setpoint > 1500.0f) setpoint = 1500.0f;
                     break;
                 case BTN_DOWN:
-                    setpoint -= 10.0f;
-                    if (setpoint < 200.0f) setpoint = 400.0f;
+                    s->co2_setpoint -= 30.0f;
+                    if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                     break;
                 case BTN_OK:
-                    confirmed_setpoint = setpoint; // when button press it saves the set point to confirmed_co2_setpoint
-                    s->settings.co2_setpoint = confirmed_setpoint;
-                    s->eeprom.eeprom_write_state(&s->settings);
-                    s->eeprom.eeprom_read_state();
-                    printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+                    s->confirmed_co2_setpoint = s->co2_setpoint;
+                    //confirmed_setpoint = setpoint; // when button press it saves the set point to confirmed_co2_setpoint
+                    //s->settings.co2_setpoint = confirmed_setpoint;
+                    //s->eeprom.eeprom_write_state(&s->settings);
+                    //s->eeprom.eeprom_read_state();
+                    //printf("eerpom set point %.2f\n", s->settings.co2_setpoint);
+                    //printf("setpoint changed: %.2f\n", s->co2_setpoint);
+                    printf("confiremed setpoint changed: %.2f\n", s->confirmed_co2_setpoint);
                     break;
             }
         }
         // update display
         char line1[32], line2[32], line3[32], line4[32], line5[32], line6[32], line7[32];
         snprintf(line1, sizeof(line1), "CO2: %.0fppm", co2_ppm);
-        snprintf(line2, sizeof(line2), "Setpt: %.0fppm", confirmed_setpoint);
+        snprintf(line2, sizeof(line2), "Setpt: %.0fppm", s->confirmed_co2_setpoint);
         snprintf(line3, sizeof(line3), "RH:%.0f T:%.0f F:%.0f" , rh, t, fanlevel);
-        snprintf(line4, sizeof(line4), "Setpoint: %.0f ppm", setpoint);
+        snprintf(line4, sizeof(line4), "Setpoint: %.0f ppm", s->co2_setpoint);
         snprintf(line5, sizeof(line5), "SSID: ");
         snprintf(line6, sizeof(line6), "PWD: ");
         display.clear();

@@ -54,9 +54,9 @@ int main()
     Uart_s ptr; // this is for uart function
     static SystemObjects sys;
 
-    sys.eeprom.eeprom_read_state();
-    sys.co2_setpoint = sys.settings.co2_setpoint;
-    sys.confirmed_co2_setpoint = sys.settings.co2_setpoint;
+    //sys.eeprom.eeprom_read_state();
+    //sys.co2_setpoint = sys.settings.co2_setpoint;
+    //sys.confirmed_co2_setpoint = sys.settings.co2_setpoint;
     buttonQueue = xQueueCreate(5, sizeof(ButtonEvent));  // queue can hold 5 button events
     sys.buttonQueue = buttonQueue;
 
