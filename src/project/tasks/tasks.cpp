@@ -73,7 +73,7 @@ void controller_task(void *param) {
     gpio_init(CO2_VALVE_GPIO);
     gpio_set_dir(CO2_VALVE_GPIO, true); // output
     gpio_put(CO2_VALVE_GPIO, 0);
-    const TickType_t inject_time = pdMS_TO_TICKS(1500);  // 2s injection
+    const TickType_t inject_time = pdMS_TO_TICKS(1500);
     TickType_t wait_time = pdMS_TO_TICKS(30000);
     float co2level; //actual co2
     float setpoint = s->confirmed_co2_setpoint;
@@ -83,21 +83,22 @@ void controller_task(void *param) {
             float min_fanlevel = 300.0f;
             float max_fanlevel = 1000.0f;
             float maxCO2 = 2000.0f;
-            printf("co2 setpoint in the controller: %.0f\n", s->confirmed_co2_setpoint);
+            //printf("co2 setpoint in the controller: %.0f\n", s->confirmed_co2_setpoint);
             if (co2level < s->confirmed_co2_setpoint - 50) {
                 fanlevel = 0;
                 xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
-
                 s->fan_control->write(fanlevel);
                 xSemaphoreGive(s->modbus_mutex);
                 gpio_put(CO2_VALVE_GPIO, 1);
                 s->injecting = true;
                 vTaskDelay(inject_time);
                 s->injecting = false;
-                s->waiting = true;
                 gpio_put(CO2_VALVE_GPIO, 0);
-                if (co2level>s->confirmed_co2_setpoint + 50) {
+
+                s->waiting = true;
+                if (co2level > s->confirmed_co2_setpoint + 50) {
                     wait_time = pdMS_TO_TICKS(0);
+                    printf("waiting time updated\n");
                 }
                 vTaskDelay(wait_time);
                 s->waiting = false;
@@ -105,8 +106,10 @@ void controller_task(void *param) {
             } else if (co2level > s->confirmed_co2_setpoint + 50) {
                 s->fan_running = true;
                 if (co2level > maxCO2) {
+                    s->alarm_high_co2 = true;
                     fanlevel = max_fanlevel;
                 } else {
+                    s->alarm_high_co2 = false;
                     fanlevel = min_fanlevel + (co2level - setpoint) * (max_fanlevel - min_fanlevel) / (maxCO2 - setpoint);
                     if (fanlevel > max_fanlevel) fanlevel = max_fanlevel;
                     if (fanlevel < min_fanlevel) fanlevel = min_fanlevel;
@@ -279,20 +282,20 @@ void ui_task(void *param) {
                 case BTN_UP:
                     up_press_detected = true;                              // remember that we saw at least one UP
                     //saw_up = true;
-                    printf("up pressed\n");
+                    //printf("up pressed\n");
                     break;
 
                 case BTN_DOWN:
                     down_press_detected = true;
                     //s->co2_setpoint -= 10.0f;
-                    printf("down pressed\n");
+                    //printf("down pressed\n");
                     //if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                     break;
 
                 case BTN_OK:
-                    printf("confirm pressed\n");
+                    //printf("confirm pressed\n");
                     s->confirmed_co2_setpoint = s->co2_setpoint;
-                    printf("confiremed setpoint changed: %.2f\n", s->confirmed_co2_setpoint);
+                    //printf("confiremed setpoint changed: %.2f\n", s->confirmed_co2_setpoint);
                     break;
             }
         }
@@ -310,7 +313,7 @@ void ui_task(void *param) {
         */
         if (up_press_detected) {
             TickType_t now = xTaskGetTickCount();
-            if ((now - last_up_apply) >= pdMS_TO_TICKS(150)) {
+            if ((now - last_up_apply) >= pdMS_TO_TICKS(50)) {
                 s->co2_setpoint += 10.0f;
                 if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f;
                 last_up_apply = now;
@@ -320,7 +323,7 @@ void ui_task(void *param) {
 
         if (down_press_detected) {
             TickType_t now_down = xTaskGetTickCount();
-            if ((now_down - last_down_apply) >= pdMS_TO_TICKS(150)) {
+            if ((now_down - last_down_apply) >= pdMS_TO_TICKS(50)) {
                 s->co2_setpoint -= 10.0f;
                 if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                 last_down_apply = now_down;
@@ -361,6 +364,49 @@ void ui_task(void *param) {
     }
 }
 
+void blink_task(void *param)
+{
+    auto *s = static_cast<SystemObjects*>(param);
+
+    while (true) {
+        if (s->injecting) {
+            s->led_inject->write(true);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            s->led_inject->write(false);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        } else {
+            s->led_inject->write(false);
+        }
+        if (s->fan_running) {
+            s->led_status->write(true);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        if (s->alarm_high_co2) {
+            s->led_alarm->write(true);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            s->led_alarm->write(false);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        } else {
+            s->led_alarm->write(false);
+        }
+
+        if (s->waiting) {
+            s->led_status->write(true);
+            vTaskDelay(pdMS_TO_TICKS(400));
+            s->led_status->write(false);
+            vTaskDelay(pdMS_TO_TICKS(400));
+        } else {
+            s->led_status->write(true);
+            vTaskDelay(pdMS_TO_TICKS(50));
+
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50)); // avoid CPU hogging
+    }
+}
+
+/*
 void wifi_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     if (cyw43_arch_init()) {
@@ -394,6 +440,66 @@ void wifi_task(void *param) {
         // runs forever
     }
 }
+
+*/
+void wifi_task(void *param) {
+    (void)param;
+    printf("Wi-Fi task starting...\n");
+
+    // Initialize Wi-Fi
+    if (cyw43_arch_init()) {
+        printf("Wi-Fi init failed!\n");
+        vTaskDelete(NULL);
+    }
+
+    // Enable station mode
+    cyw43_arch_enable_sta_mode();
+
+    int retry_count = 0;
+    const int max_retries = 10;      // keep retrying up to 10 times
+    const int retry_delay_ms = 5000; // 5 seconds between retries
+
+    while (true) {
+        printf("[WiFi] Attempting to connect: %s (Try %d/%d)...\n",
+               WIFI_SSID, retry_count + 1, max_retries);
+
+        int result = cyw43_arch_wifi_connect_timeout_ms(
+            WIFI_SSID,
+            WIFI_PASSWORD,
+            CYW43_AUTH_WPA2_MIXED_PSK, // safer for iPhone
+            10000                       // 10 second timeout
+        );
+
+        if (result == 0) {
+            printf("[WiFi] Connected!\n");
+            printf("[WiFi] IP: %s\n", ip4addr_ntoa(netif_ip4_addr(netif_default)));
+
+            // Optional: light the Pico W LED on connection
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+
+            break; // exit loop, connection succeeded
+        } else {
+            printf("[WiFi] Connection failed (error %d)\n", result);
+            retry_count++;
+            if (retry_count >= max_retries) {
+                printf("[WiFi] Could not connect after %d attempts. Restarting Wi-Fi...\n", max_retries);
+                retry_count = 0;
+                //cyw43_arch_disable_sta_mode();
+                cyw43_arch_enable_sta_mode();
+            }
+        }
+
+        // Wait a bit before retrying
+        vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
+    }
+
+    // Keep task alive (monitor Wi-Fi)
+    while (true) {
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+
 
 void cloud_task(void *param) {
     // run every 15s (limitation on free account)
@@ -490,20 +596,7 @@ void uartTask(void *param) {
     }
 }
 
-void blink_task(void *param)
-{
-    auto lpr = (led_params *) param;
-    const uint led_pin = lpr->pin;
-    const uint delay = pdMS_TO_TICKS(lpr->delay);
-    gpio_init(led_pin);
-    gpio_set_dir(led_pin, GPIO_OUT);
-    while (true) {
-        gpio_put(led_pin, true);
-        vTaskDelay(delay);
-        gpio_put(led_pin, false);
-        vTaskDelay(delay);
-    }
-}
+
 
 void gpio_callback(uint gpio, uint32_t events) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;

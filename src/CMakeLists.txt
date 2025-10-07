@@ -43,6 +43,10 @@ add_executable(${ProjectName}
         project/tasks/tasks_data.h
         project/display/oled.cpp
         project/display/oled.h
+        project/gpio/gpiopin.cpp
+        project/gpio/gpiopin.h
+        project/gpio/led.cpp
+        project/gpio/led.h
 
 )
 

@@ -17,6 +17,7 @@
 #include "ModbusRegister.h"
 #include "project/eeprom/EEPROM.h"
 #include "project/eeprom/EEPROM_data.h"
+#include "project/gpio/gpiopin.h"
 
 #define UART_NR 1
 #define UART_TX_PIN 4
@@ -32,12 +33,15 @@
 #define BUTTON_2 7
 #define BUTTON_1 8
 #define BUTTON_0 9
+#define LED_PIN1 22
+#define LED_PIN2 21
+#define LED_PIN3 20
 
 extern SemaphoreHandle_t gpio_sem;
 extern QueueHandle_t co2Queue;
 
 struct led_params{
-    uint pin;
+    GPIOPin *pin;
     uint delay;
 };
 
@@ -76,6 +80,10 @@ struct SystemObjects {
     std::shared_ptr<ModbusRegister> rh_sensor;
     std::shared_ptr<ModbusRegister> t_sensor;
 
+    GPIOPin *led_inject;
+    GPIOPin *led_alarm;
+    GPIOPin *led_status;
+
     // Mutex to protect Modbus bus
     QueueHandle_t buttonQueue;
     QueueHandle_t encoderQueue;
@@ -86,6 +94,7 @@ struct SystemObjects {
     bool waiting=false;
     bool injecting = false;
     bool fan_running=false;
+    bool alarm_high_co2 = false;
     SemaphoreHandle_t modbus_mutex;
     Settings settings;
     EEPROM eeprom;
@@ -95,11 +104,11 @@ struct SystemObjects {
         uart = std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS);
         rtu_client = std::make_shared<ModbusClient>(uart);
 
-        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 257); // try with 0
-        fan_control  = std::make_shared<ModbusRegister>(rtu_client, 1, 0);
-        fan_counter  = std::make_shared<ModbusRegister>(rtu_client, 1, 30005);
-        rh_sensor    = std::make_shared<ModbusRegister>(rtu_client, 241, 256);
-        t_sensor     = std::make_shared<ModbusRegister>(rtu_client, 241, 257);
+        co2_sensor   = std::make_shared<ModbusRegister>(rtu_client, 240, 257); // 257
+        fan_control  = std::make_shared<ModbusRegister>(rtu_client, 1, 0); // 0
+        fan_counter  = std::make_shared<ModbusRegister>(rtu_client, 1, 30005); // 30005
+        rh_sensor    = std::make_shared<ModbusRegister>(rtu_client, 241, 256); // 256
+        t_sensor     = std::make_shared<ModbusRegister>(rtu_client, 241, 257); // 257
 
         modbus_mutex = xSemaphoreCreateMutex();
         eeprom.init(EEPROM_ADDRESS, &settings, sizeof(settings));

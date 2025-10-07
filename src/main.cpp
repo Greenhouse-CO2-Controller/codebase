@@ -13,6 +13,7 @@
 //my includes starts
 #include "project/eeprom/EEPROM.h"
 #include "project/eeprom/EEPROM_data.h"
+#include "project/gpio/gpiopin.h"
 
 
 extern "C" {
@@ -22,7 +23,7 @@ uint32_t read_runtime_ctr(void) {
 }
 
 #include "blinker.h"
-static led_data_s *led_data_for_isr = NULL;
+//static led_data_s *led_data_for_isr = NULL;
 
 #define TESTING_EEPROM 0x01
 #define MAX_CO2_SETPOINT 1500
@@ -39,20 +40,31 @@ void button_init(uint pin) {
 }
 int main()
 {
-    static led_params lp1 = { .pin = 20, .delay = 300 };
+    //static led_params lp1 = { .pin = 20, .delay = 300 };
     stdio_init_all();
     i2c_init(I2C, FREQUENCY);
     gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C_SDA);
     gpio_pull_up(I2C_SCL);
-    button_init(BUTTON_2);
-    button_init(BUTTON_1);
-    button_init(BUTTON_0);
+
+    // GPIO  Pins
+    GPIOPin sw2(BUTTON_2, true, true, false);
+    GPIOPin sw1(BUTTON_1, true, true, false);
+    GPIOPin sw0(BUTTON_0, true, true, false);
+    GPIOPin D1(LED_PIN1, false);
+    GPIOPin D2(LED_PIN2, false);
+    GPIOPin D3(LED_PIN3, false);
+    //button_init(BUTTON_2);
+    //button_init(BUTTON_1);
+    //button_init(BUTTON_0);
     printf("\nBoot\n");
     co2Queue = xQueueCreate(1, sizeof(float));
     Uart_s ptr; // this is for uart function
     static SystemObjects sys;
+    sys.led_inject = &D1;
+    sys.led_alarm = &D2;
+    sys.led_status = &D3;
 
     //sys.eeprom.eeprom_read_state();
     //sys.co2_setpoint = sys.settings.co2_setpoint;
@@ -75,28 +87,34 @@ int main()
     // ALL tasks from here
 
 #if 1 //controller task
-    xTaskCreate(controller_task,"controller_task",512,&sys,tskIDLE_PRIORITY+3,NULL);
+    xTaskCreate(controller_task,"controller_task",512,&sys,tskIDLE_PRIORITY+4,NULL);
 
 #endif
 
 #if 1 //UI task
     xTaskCreate(ui_task, "SSD1306", 512, &sys,
-                tskIDLE_PRIORITY + 1, nullptr); // changed (void *) nullptr --> &t_ptr
+                tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
 #endif
 
 
 #if 1 // modbus task--> control fan and reding sensors
     xTaskCreate(modbus_task, "Modbus", 512, &sys,
-                tskIDLE_PRIORITY + 2, nullptr); // changed (void *) nullptr --> &t_ptr
+                tskIDLE_PRIORITY + 3, nullptr); // changed (void *) nullptr --> &t_ptr
 #endif
 
 #if 1
     xTaskCreate(button_task, "Button", 512, &sys,tskIDLE_PRIORITY + 2,nullptr);
 #endif
+
 #if 1
-    xTaskCreate(eeprom_task, "EEPROM", 512, &sys, tskIDLE_PRIORITY + 2, nullptr);
+    xTaskCreate(blink_task, "Blink", 512, &sys,tskIDLE_PRIORITY + 1,nullptr);
 #endif
-#if 0 // connecting to wifi
+
+#if 1
+    xTaskCreate(eeprom_task, "EEPROM", 512, &sys, tskIDLE_PRIORITY + 1, nullptr);
+#endif
+
+#if 1 // connecting to wifi
     xTaskCreate(wifi_task, "WiFi", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
 #endif
 
@@ -108,8 +126,6 @@ int main()
     xTaskCreate(i2c_task, "i2c test", 512, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
-
-
 
 #if 0 // enable this to enter commands. But we have to set this in UI and cloud
     xTaskCreate(uartTask, "UART", 512, &ptr, 1, nullptr);

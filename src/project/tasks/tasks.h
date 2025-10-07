@@ -17,6 +17,8 @@
 
 #define WIFI_SSID "markfernando"
 #define WIFI_PASS "markfernando"
+//#define WIFI_SSID "Visal_iphone"
+//#define WIFI_PASSWORD "Visal2002"
 
 
 void modbus_task(void *pvParameters);
