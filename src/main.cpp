@@ -14,16 +14,13 @@
 #include "project/eeprom/EEPROM.h"
 #include "project/eeprom/EEPROM_data.h"
 #include "project/gpio/gpiopin.h"
-
+#include "blinker.h"
 
 extern "C" {
 uint32_t read_runtime_ctr(void) {
     return timer_hw->timerawl;
 }
 }
-
-#include "blinker.h"
-//static led_data_s *led_data_for_isr = NULL;
 
 #define TESTING_EEPROM 0x01
 #define MAX_CO2_SETPOINT 1500
@@ -33,14 +30,14 @@ uint32_t read_runtime_ctr(void) {
 #define FREQUENCY (100*1000)
 QueueHandle_t buttonQueue;
 
-void button_init(uint pin) {
-    gpio_init(pin);
-    gpio_set_dir(pin, GPIO_IN);
-    gpio_pull_up(pin);
-}
 int main()
 {
-    //static led_params lp1 = { .pin = 20, .delay = 300 };
+    // D3 on-> fan running
+    // D2 blink rapidly --> co2 above 20000
+    // D1 on-> injecting co2
+    // D3 blink --> waiting
+    // D3 --> doing nothing
+
     stdio_init_all();
     i2c_init(I2C, FREQUENCY);
     gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
@@ -55,10 +52,7 @@ int main()
     GPIOPin D1(LED_PIN1, false);
     GPIOPin D2(LED_PIN2, false);
     GPIOPin D3(LED_PIN3, false);
-    //button_init(BUTTON_2);
-    //button_init(BUTTON_1);
-    //button_init(BUTTON_0);
-    printf("\nBoot\n");
+
     co2Queue = xQueueCreate(1, sizeof(float));
     Uart_s ptr; // this is for uart function
     static SystemObjects sys;
@@ -69,7 +63,7 @@ int main()
     //sys.eeprom.eeprom_read_state();
     //sys.co2_setpoint = sys.settings.co2_setpoint;
     //sys.confirmed_co2_setpoint = sys.settings.co2_setpoint;
-    buttonQueue = xQueueCreate(5, sizeof(ButtonEvent));  // queue can hold 5 button events
+    buttonQueue = xQueueCreate(5, sizeof(ButtonEvent));
     sys.buttonQueue = buttonQueue;
     //sys.co2_setpoint = 800;
 
@@ -114,7 +108,7 @@ int main()
     xTaskCreate(eeprom_task, "EEPROM", 512, &sys, tskIDLE_PRIORITY + 1, nullptr);
 #endif
 
-#if 1 // connecting to wifi
+#if 0 // connecting to wifi
     xTaskCreate(wifi_task, "WiFi", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
 #endif
 
@@ -135,15 +129,6 @@ int main()
     xTaskCreate(tls_task, "tls test", 6000, (void *) nullptr,
                 tskIDLE_PRIORITY + 1, nullptr);
 #endif
-
-
-    // network task - here we need to write to eeprom and read it back
-    // when we run this for first time all the important data should write to eeprom
-    // Also we need to read it back. so when we press reset after run it reads from the eepro.
-    // then we have data locally
-    // **** eeprom need in--> network task, co2 setpoint
-    // EEPROM task
-    // Thinkspeak task
 
     vTaskStartScheduler();
 

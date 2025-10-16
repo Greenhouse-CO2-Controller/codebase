@@ -14,7 +14,6 @@
 #include "ssd1306os.h"
 #include "project/display/oled.h"
 
-
 SemaphoreHandle_t gpio_sem = nullptr;
 QueueHandle_t co2Queue = nullptr;
 
@@ -35,6 +34,7 @@ QueueHandle_t co2Queue = nullptr;
 
 #define USE_MODBUS
 #define CO2_VALVE_GPIO 27
+
 void modbus_task(void *param) {
     auto *s = static_cast<SystemObjects*>(param);
     uint32_t last_display_time = 0;
@@ -46,10 +46,10 @@ void modbus_task(void *param) {
         xSemaphoreGive(s->modbus_mutex);
 
         uint32_t now = xTaskGetTickCount();
-        if (now - last_display_time > pdMS_TO_TICKS(1500)) {
+        if (now - last_display_time > pdMS_TO_TICKS(1000)) {
             float rh, t, co2, fan;
 
-            xSemaphoreTake(s->modbus_mutex, portMAX_DELAY); // look carefully on the variable with /10.0. I divided by 10 to match the values with simulater
+            xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
             rh = s->rh_sensor->read()/10.0f;
             t  = s->t_sensor->read()/10.0f;
             co2 = s->co2_sensor->read();
@@ -64,7 +64,7 @@ void modbus_task(void *param) {
             last_display_time = now;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -78,7 +78,7 @@ void controller_task(void *param) {
     float co2level; //actual co2
     float setpoint = s->confirmed_co2_setpoint;
     while (true) {
-        if (xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(500))) {
+        if (xQueueReceive(co2Queue, &co2level, pdMS_TO_TICKS(1000))) {
             float fanlevel = 0.0f;
             float min_fanlevel = 300.0f;
             float max_fanlevel = 1000.0f;
@@ -86,16 +86,18 @@ void controller_task(void *param) {
             //printf("co2 setpoint in the controller: %.0f\n", s->confirmed_co2_setpoint);
             if (co2level < s->confirmed_co2_setpoint - 50) {
                 fanlevel = 0;
-                xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
-                s->fan_control->write(fanlevel);
-                xSemaphoreGive(s->modbus_mutex);
+                s->fan_running = false;
+                //xSemaphoreTake(s->modbus_mutex, portMAX_DELAY);
+                //s->fan_control->write(fanlevel);
+                //xSemaphoreGive(s->modbus_mutex);
                 gpio_put(CO2_VALVE_GPIO, 1);
                 s->injecting = true;
                 vTaskDelay(inject_time);
                 s->injecting = false;
                 gpio_put(CO2_VALVE_GPIO, 0);
-
+                s->fan_running = false;
                 s->waiting = true;
+
                 if (co2level > s->confirmed_co2_setpoint + 50) {
                     wait_time = pdMS_TO_TICKS(0);
                     printf("waiting time updated\n");
@@ -115,7 +117,7 @@ void controller_task(void *param) {
                     if (fanlevel < min_fanlevel) fanlevel = min_fanlevel;
                 }
                 gpio_put(CO2_VALVE_GPIO, 0);
-                s->fan_running = false;
+                //s->fan_running = false;
 
             } else {
                 gpio_put(CO2_VALVE_GPIO, 0);
@@ -125,7 +127,7 @@ void controller_task(void *param) {
             s->fan_control->write(fanlevel);
             xSemaphoreGive(s->modbus_mutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -237,7 +239,6 @@ void ui_task(void *param) {
     ButtonEvent btn;
     //s->co2_setpoint = 800; // initial value
 
-
     while (true) {
 
         // read CO2 directly from modbus
@@ -273,51 +274,32 @@ void ui_task(void *param) {
 #endif
 #if 1
         static TickType_t last_up_apply = 0;
-        static TickType_t last_down_apply = 0;// remembers when we last applied +30
+        static TickType_t last_down_apply = 0;
         //bool saw_up = false;
         bool up_press_detected = false;
         bool down_press_detected = false;
         while (xQueueReceive(s->buttonQueue, &btn, 0) == pdTRUE) {
             switch (btn) {
                 case BTN_UP:
-                    up_press_detected = true;                              // remember that we saw at least one UP
-                    //saw_up = true;
-                    //printf("up pressed\n");
+                    up_press_detected = true;
                     break;
 
                 case BTN_DOWN:
                     down_press_detected = true;
-                    //s->co2_setpoint -= 10.0f;
-                    //printf("down pressed\n");
-                    //if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                     break;
 
                 case BTN_OK:
-                    //printf("confirm pressed\n");
                     s->confirmed_co2_setpoint = s->co2_setpoint;
-                    //printf("confiremed setpoint changed: %.2f\n", s->confirmed_co2_setpoint);
                     break;
             }
         }
 
-        // Apply at most one +30 every 500 ms, no matter how many UPs arrived
-        /*
-        if (saw_up) {
-            TickType_t now = xTaskGetTickCount();
-            if ((now - last_up_apply) >= pdMS_TO_TICKS(50)) {  // 500 ms window
-                s->co2_setpoint += 10.0f;
-                if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f; // <-- clamp FIX
-                last_up_apply = now;
-            }
-        }
-        */
         if (up_press_detected) {
             TickType_t now = xTaskGetTickCount();
             if ((now - last_up_apply) >= pdMS_TO_TICKS(50)) {
                 s->co2_setpoint += 10.0f;
                 if (s->co2_setpoint > 1500.0f) s->co2_setpoint = 1500.0f;
                 last_up_apply = now;
-                //last_down_apply = 0;
             }
         }
 
@@ -327,7 +309,6 @@ void ui_task(void *param) {
                 s->co2_setpoint -= 10.0f;
                 if (s->co2_setpoint < 200.0f) s->co2_setpoint = 200.0f;
                 last_down_apply = now_down;
-                //last_up_apply = 0;
             }
         }
 
@@ -340,6 +321,8 @@ void ui_task(void *param) {
             strcpy(line_wait, "W");
         }else if (s->injecting) {
             strcpy(line_wait, "I");
+        }else if (s->fan_running) {
+            strcpy(line_wait, "R");
         }
         else if (!s->waiting && !s->injecting){
             strcpy(line_wait, "N-WI");
@@ -406,42 +389,6 @@ void blink_task(void *param)
     }
 }
 
-/*
-void wifi_task(void *param) {
-    auto *s = static_cast<SystemObjects*>(param);
-    if (cyw43_arch_init()) {
-        printf("Wi-Fi init failed!\n");
-        vTaskDelete(NULL);
-    }
-    cyw43_arch_enable_sta_mode();
-    printf("Connecting to Wi-Fi: %s\n", WIFI_SSID);
-
-    int result = cyw43_arch_wifi_connect_timeout_ms(
-        WIFI_SSID, WIFI_PASSWORD,
-        CYW43_AUTH_WPA2_AES_PSK, 30000);
-
-    if (result) {
-        printf("Wi-Fi connection failed (%d)\n", result);
-        while (1) {
-            printf("Retrying Wi-Fi...\n");
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            result = cyw43_arch_wifi_connect_timeout_ms(
-                WIFI_SSID, WIFI_PASSWORD,
-                CYW43_AUTH_WPA2_AES_PSK, 30000);
-            if (!result) break;
-        }
-    }
-
-    printf("Connected to Wi-Fi!\n");
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        // runs forever
-    }
-}
-
-*/
 void wifi_task(void *param) {
     (void)param;
     printf("Wi-Fi task starting...\n");

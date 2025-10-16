@@ -90,7 +90,7 @@ struct SystemObjects {
     float temperature;
     float humidity;
     float fanSpeed;
-    float co2_setpoint=800;
+    float co2_setpoint=900;
     bool waiting=false;
     bool injecting = false;
     bool fan_running=false;
@@ -98,7 +98,7 @@ struct SystemObjects {
     SemaphoreHandle_t modbus_mutex;
     Settings settings;
     EEPROM eeprom;
-    float confirmed_co2_setpoint=800;
+    float confirmed_co2_setpoint=900;
 
     SystemObjects() {
         uart = std::make_shared<PicoOsUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS);
