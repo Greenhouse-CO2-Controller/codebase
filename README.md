@@ -22,6 +22,8 @@ If no dat arrives within that time it skips the process for that cycle.
 
 Based on the co2 reading, it decides whether to run the fan or inject co2. 
 
+When injecting, it is limited to 1s and then stabilizes for 30s.
+
 Whenever the controller writes to the fan, it takes the mutex, writes the new value, and then releases it
 
 
@@ -38,8 +40,8 @@ When a button is pressed, it sends a button event to the button queue.
 
 This responsible for displaying data on Oled display.
 
-It reads the latest sensor values and setpoints, and refreshes display every 500ms
+It reads the latest sensor values and setpoints, and refreshes display every 500ms. Eventhough the display refreshes every 500ms, sensor readings update only every 1000ms. The faster refresh helps to show button changes quickly. If we used 1000ms, button queue might oveflow and feel slow to respond.
 
-It also listens for button events from the button queue to update the co2 setpoint in real time
+It also listens for button events from the button queue to update the co2 setpoint in real time. 
 
 
